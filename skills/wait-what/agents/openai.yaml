@@ -1,0 +1,5 @@
+interface:
+  display_name: "もう一度説明"
+  short_description: "直前の分かりにくい説明を、背景を補って平易な日本語で説明し直します"
+policy:
+  allow_implicit_invocation: false
