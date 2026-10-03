@@ -20,6 +20,7 @@
 
 ## 保存しているスキル
 
+- [deep-code-reading](skills/deep-code-reading/README.md): リポジトリ全体や指定箇所の構成と基本動作を、コードポインター付きで解説するスキルです。
 - [ja-text-communication](skills/ja-text-communication/README.md): 日本語の応答やドキュメントを、一読で意味が伝わるように記述するためのスキルです。
 - [wait-what](skills/wait-what/README.md): Matt Pocockさんのスキルを日本語化したものです。分かりにくい説明に背景を補い、平易な日本語で説明し直します。
 
