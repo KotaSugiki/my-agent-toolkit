@@ -1,0 +1,5 @@
+interface:
+  display_name: "Gitea Issueから作業を再開"
+  short_description: "Orca CLIで作業場所を確認し、GiteaのIssue URLから残りの作業を進めます"
+policy:
+  allow_implicit_invocation: false
