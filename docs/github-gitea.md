@@ -1,36 +1,10 @@
 # GitHub・GiteaでのIssue起票とPR作成
 
-Issueの起票とプルリクエスト（PR）の作成には、対象リポジトリを管理するGitHubまたはGiteaを操作します。この文書では、本リポジトリで採用する手順と、サービスごとの操作方法を説明します。
+操作先の確認、認証・権限、重複確認、Issue・PRの記載事項と作成後の確認は、[共通ルール](../templates/AGENTS.md#issue起票とpr作成)に定めています。この文書は、CLI（コマンドで操作するツール）やAPIの操作例と参考資料を扱います。
 
-コミット、ブランチ、mainへの取り込みについては、[リポジトリの取り扱いルール](repository-rules.md)に従います。
+配布用AGENTS.mdには必要な規約本文が含まれているため、この補足文書を導入先へコピーする必要はありません。
 
-## 操作先と操作手段
-
-作業前に `git remote -v` で接続先を確認し、操作するサービス、リポジトリ所有者、リポジトリ名を特定します。複数のリモートがある場合は、依頼された作成先を使います。Giteaの接続先URLは利用環境に合わせて確認します。
-
-基本の操作手段は次のとおりです。CLIは、コマンドを入力して操作するツールです。
-
-| サービス | 基本の操作手段 | 代替手段 |
-| --- | --- | --- |
-| GitHub | GitHub CLIの `gh` | 接続済みの連携ツール、Web画面、API |
-| Gitea | Gitea公式CLIの `tea` | 接続済みの連携ツール、Web画面、API |
-
-`gh` はIssueやPRの作成コマンドを提供します。`tea` はGiteaのIssueやPRなどを操作する公式CLIです。[GitHub CLI（公開日不明、2026/10確認）, 作成コマンド](https://cli.github.com/manual/gh_pr_create)、[Gitea Tea（公開日不明、2026/10確認）, What is Tea?](https://about.gitea.com/products/tea/)
-
-認証済みの操作手段が利用できる場合は、それを使います。認証先のホストとアカウントを確認し、起票・作成に必要な権限を持つ認証情報を使います。トークンやパスワードは、リポジトリ、Issue本文、PR本文、作業報告に記載しません。
-
-## 共通の作業手順
-
-1. 対象リポジトリの既存Issue・PRを確認し、同じ内容の起票や作成を重複させないようにします。
-2. 課題や検討事項を記録する必要がある場合は、Issueを起票します。小さな修正は、Issueを作らずPRで説明できます。
-3. 作業ブランチで変更し、必要な確認を済ませてコミットします。
-4. 作業ブランチを対象のリモートにpushします。
-5. 取り込み先を `main`、変更元を作業ブランチとしてPRを作成します。
-6. 作成されたIssue・PRの番号、URL、本文を確認し、作業報告にURLを記載します。
-
-Issueには、目的・背景・完了条件を記載します。不具合の場合は、再現手順、期待する動作、実際の動作も記載します。PRには、解決する問題、変更内容、確認結果を記載し、関連するIssueがあれば番号またはURLを添えます。タイトルと本文は日本語を基本とし、PRのタイトルは運用ルールで定めたコミットメッセージ形式にします。
-
-AIエージェントも依頼された作業範囲に従って操作します。PRの作成とマージは別の操作として扱います。認証や権限が不足して作成できない場合は、用意したタイトル・本文と、実行できなかった操作を報告します。作成先で確認できたものだけを作成済みとして報告します。
+GitHub CLIの `gh` はIssue・PRの作成コマンドを提供します。Gitea公式CLIの `tea` はIssue・PRなどを操作するツールです。[GitHub CLI（公開日不明、2026/10確認）, 作成コマンド](https://cli.github.com/manual/gh_pr_create)、[Gitea Tea（公開日不明、2026/10確認）, What is Tea?](https://about.gitea.com/products/tea/)
 
 ## GitHubの操作
 
@@ -43,7 +17,7 @@ gh auth status --hostname github.com
 gh auth login --hostname github.com --web
 ```
 
-ログインのコマンドは、認証が必要な場合に実行します。ブラウザーでのログインが必要な部分は、利用者が操作します。
+認証不足の場合の対応は、[共通ルール](../templates/AGENTS.md#issue起票とpr作成)に従います。
 
 ### Issue・PRの作成
 
@@ -61,9 +35,9 @@ gh pr create --repo OWNER/REPO --base main --head docs/github-gitea --title "doc
 
 ### CLIの利用
 
-`tea` を使う場合は、対象Giteaサーバーのログイン設定を用意し、接続先とアカウントを確認します。複数サーバーのログイン設定には名前を付けて管理できます。[Gitea Tea（公開日不明、2026/10確認）, See it in action / Why Tea?](https://about.gitea.com/products/tea/)
+`tea` では複数サーバーのログイン設定に名前を付けて管理できます。[Gitea Tea（公開日不明、2026/10確認）, See it in action / Why Tea?](https://about.gitea.com/products/tea/)
 
-利用するバージョンの `tea --help` と `tea login add --help` で、ログイン設定と操作コマンドを確認します。Issue・PR作成時は、対象リポジトリ、タイトル、本文を指定し、PRの取り込み先を `main`、変更元をpush済みの作業ブランチにします。
+ログイン設定と操作コマンドのヘルプは、`tea --help` と `tea login add --help` で表示できます。作成時に確認する事項は、[共通ルール](../templates/AGENTS.md#issue起票とpr作成)を参照してください。
 
 ### Web画面・APIの利用
 

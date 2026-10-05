@@ -25,6 +25,12 @@
 - [resume-gitea-issue](skills/resume-gitea-issue/README.md): Orca CLIで作業場所を確認し、GiteaのIssue URLから現在のセッションで残りの作業を進めるスキルです。
 - [wait-what](skills/wait-what/README.md): Matt Pocockさんのスキルを日本語化したものです。分かりにくい説明に背景を補い、平易な日本語で説明し直します。
 
+## 共通ルールの導入
+
+[配布用AGENTS.md](templates/AGENTS.md)には、コミット・ブランチ・PR・Issueの規約と、ドキュメントの配置・記述などの共通ルールをまとめています。単体で利用できるよう、必要な指示を本文に含めています。
+
+導入は手動で行います。AGENTS.mdがないリポジトリにはコピーし、既にある場合はプロジェクト固有の指示を残して共通ルールを組み込みます。新規導入、既存リポジトリへの導入、更新は、[AGENTS.mdの手動導入](docs/agents-installation.md)を参照してください。
+
 ## Skillsの導入
 
 Skillsの導入には `npx skills` を使います。このスキルがリモートの `main` に取り込まれた後、利用先のプロジェクトで次のコマンドを実行します。
@@ -37,6 +43,6 @@ npx skills add KotaSugiki/my-agent-toolkit --skill ja-text-communication --agent
 
 ## 運用ルール
 
-コミットメッセージ、ブランチの命名、mainブランチ保護、ドキュメントの階層については、[リポジトリの取り扱いルール](docs/repository-rules.md)を参照してください。
+共通の規約本文は、[配布用AGENTS.md](templates/AGENTS.md)を参照してください。このツールキット固有の配置・導入方針やGitHub側の設定方針は、[リポジトリの取り扱いルール](docs/repository-rules.md)を参照してください。
 
 Issue起票やPR作成の操作方法については、[GitHub・GiteaでのIssue起票とPR作成](docs/github-gitea.md)を参照してください。
