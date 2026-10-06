@@ -1,0 +1,12 @@
+{
+  "name": "experiments",
+  "version": "0.1.0",
+  "description": "対話での実験準備、計画、実行、評価、簡潔なHTMLレポートとフィードバックを支援します。",
+  "author": {
+    "name": "KotaSugiki"
+  },
+  "homepage": "https://github.com/KotaSugiki/my-agent-toolkit/tree/main/plugins/experiments",
+  "repository": "https://github.com/KotaSugiki/my-agent-toolkit",
+  "license": "MIT",
+  "keywords": ["experiments", "research", "reports"]
+}

@@ -1,0 +1,5 @@
+interface:
+  display_name: "実験の前提をセットアップする"
+  short_description: "実験の前提を対話で確認し、回答を反映しながら保存します"
+policy:
+  allow_implicit_invocation: false

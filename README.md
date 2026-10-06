@@ -7,6 +7,7 @@
 | ディレクトリ | 役割 |
 | --- | --- |
 | `agents/` | Codex、Claude Codeなどで利用するサブエージェントやエージェント定義 |
+| `plugins/` | 共通の編集元から生成したClaude Code・Codex向けプラグインの配布ファイル |
 | `harnesses/` | 開発フローやAIエージェントの実行を補助するハーネス |
 | `skills/` | コードレビュー、文章校正、コード理解など、再利用可能なSkills |
 | `prompts/` | 汎用的に再利用するプロンプト |
@@ -24,7 +25,14 @@
 - [github-gitea-operations](skills/github-gitea-operations/README.md): 導入先の規約と接続先を確認し、GitHub・GiteaのIssue起票とPR作成を進めるスキルです。
 - [ja-text-communication](skills/ja-text-communication/README.md): 日本語の応答やドキュメントを、一読で意味が伝わるように記述するためのスキルです。
 - [resume-gitea-issue](skills/resume-gitea-issue/README.md): Orca CLIで作業場所を確認し、GiteaのIssue URLから現在のセッションで残りの作業を進めるスキルです。
+- [setup-experiments](skills/setup-experiments/README.md): 実験プロジェクトの目標、データ、実行・評価方法、制約、記録先を対話で確認し、保存するスキルです。
 - [wait-what](skills/wait-what/README.md): Matt Pocockさんのスキルを日本語化したものです。分かりにくい説明に背景を補い、平易な日本語で説明し直します。
+
+## 実験支援エージェント
+
+[実験支援エージェント](agents/experiments/README.md)には、実験計画、実験実行、評価・分析、レポート作成の4担当をまとめています。計画はMarkdownファイル、レポートは短い要約と視覚表示・操作できる詳細を持つHTMLとして保存します。保存情報と人間のフィードバックを次の実験へ引き継ぎます。
+
+エージェントの導入は、Claude CodeまたはCodexのマーケットプレイスから [experimentsプラグイン](plugins/experiments/README.md)を追加する方法に統一します。[導入・更新・削除の共通ガイド](docs/agent-plugins.md)を参照してください。Codexでは2スキルの認識まで確認済みで、4担当の登録と全体進行は未確認です。
 
 ## 共通ルールの導入
 
