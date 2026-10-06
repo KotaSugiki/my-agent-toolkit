@@ -1,0 +1,15 @@
+[[agents]]
+name = "experiment-planner"
+description = "実験計画を担当します。仮説、評価指標、目標値、比較条件、判定基準を定め、草案もMarkdownファイルに保存するときに使います。"
+
+[[agents]]
+name = "experiment-runner"
+description = "実験実行を担当します。確認済みの計画に従い、条件、実行記録、結果、失敗ログを保存するときに使います。"
+
+[[agents]]
+name = "experiment-analyst"
+description = "評価・分析を担当します。実験結果を比較し、仮説を支持する結果、反する結果、判断できない点を整理するときに使います。"
+
+[[agents]]
+name = "experiment-reporter"
+description = "レポート作成を担当します。実験結果と判断事項を、短い要約、グラフ、操作できる詳細表示を持つHTMLにまとめるときに使います。"

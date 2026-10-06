@@ -1,0 +1,13 @@
+{
+  "name": "my-agent-toolkit",
+  "description": "実験支援など、my-agent-toolkitのClaude Codeプラグインを配布します。",
+  "owner": {
+    "name": "KotaSugiki"
+  },
+  "plugins": [
+    {
+      "name": "experiments",
+      "source": "./plugins/experiments"
+    }
+  ]
+}
