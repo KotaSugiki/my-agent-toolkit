@@ -21,6 +21,7 @@
 ## 保存しているスキル
 
 - [deep-code-reading](skills/deep-code-reading/README.md): リポジトリ全体や指定箇所の構成と基本動作を、コードポインター付きで解説するスキルです。
+- [github-gitea-operations](skills/github-gitea-operations/README.md): 導入先の規約と接続先を確認し、GitHub・GiteaのIssue起票とPR作成を進めるスキルです。
 - [ja-text-communication](skills/ja-text-communication/README.md): 日本語の応答やドキュメントを、一読で意味が伝わるように記述するためのスキルです。
 - [resume-gitea-issue](skills/resume-gitea-issue/README.md): Orca CLIで作業場所を確認し、GiteaのIssue URLから現在のセッションで残りの作業を進めるスキルです。
 - [wait-what](skills/wait-what/README.md): Matt Pocockさんのスキルを日本語化したものです。分かりにくい説明に背景を補い、平易な日本語で説明し直します。
@@ -45,4 +46,4 @@ npx skills add KotaSugiki/my-agent-toolkit --skill ja-text-communication --agent
 
 共通の規約本文は、[配布用AGENTS.md](templates/AGENTS.md)を参照してください。このツールキット固有の配置・導入方針やGitHub側の設定方針は、[リポジトリの取り扱いルール](docs/repository-rules.md)を参照してください。
 
-Issue起票やPR作成の操作方法については、[GitHub・GiteaでのIssue起票とPR作成](docs/github-gitea.md)を参照してください。
+Issue起票やPR作成の操作手順は [github-gitea-operations](skills/github-gitea-operations/README.md)にまとめています。規約との役割分担と利用案内は、[GitHub・GiteaでのIssue起票とPR作成](docs/github-gitea.md)を参照してください。
