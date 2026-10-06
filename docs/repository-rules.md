@@ -2,7 +2,7 @@
 
 コミット・ブランチ・PR・Issueの規約、ドキュメントの配置・記述、外部由来の素材の記録は、[共通ルール](../templates/AGENTS.md)に定めています。この文書は、このツールキット固有の規約と補足説明を扱います。
 
-共通ルールを他のリポジトリへ導入する手順は、[AGENTS.mdの手動導入](agents-installation.md)を参照してください。GitHub・Giteaの操作例は、[Issue起票とPR作成](github-gitea.md)を参照してください。
+共通ルールを他のリポジトリへ導入する手順は、[AGENTS.mdの手動導入](agents-installation.md)を参照してください。GitHub・Giteaの操作手順は `github-gitea-operations` スキルにまとめています。規約との役割分担と利用案内は、[Issue起票とPR作成](github-gitea.md)を参照してください。
 
 ## GitHub側の保護設定
 

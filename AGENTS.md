@@ -4,4 +4,4 @@
 
 ファイルの作成・変更、ブランチ作成、コミット、Issue起票、PR作成を行う前に、[このツールキットの規約](docs/repository-rules.md)も読み、該当するルールに従ってください。
 
-GitHub・GiteaでのIssue起票やPR作成で操作方法を確認する場合は、[操作例と参考資料](docs/github-gitea.md)を参照してください。
+GitHub・GiteaでのIssue起票やPR作成を行う場合は、[github-gitea-operations](skills/github-gitea-operations/SKILL.md)の手順を使ってください。利用案内は [GitHub・GiteaでのIssue起票とPR作成](docs/github-gitea.md)を参照してください。

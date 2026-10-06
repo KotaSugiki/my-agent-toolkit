@@ -1,0 +1,5 @@
+interface:
+  display_name: "GitHub・GiteaのIssue起票とPR作成"
+  short_description: "導入先の規約と接続先を確認し、GitHub・GiteaのIssue起票とPR作成を進めます"
+policy:
+  allow_implicit_invocation: true

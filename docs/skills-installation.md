@@ -44,7 +44,7 @@ npx skills add KotaSugiki/my-agent-toolkit --skill ja-text-communication --agent
 
 `--list` は導入候補の一覧、`--skill` はスキル名、`--agent` は導入先エージェントを指定します。ユーザー全体で使う場合は、導入コマンドに `--global` を追加します。[Skills README（公開日不明、2026/10確認）, Options / Installation Scope](https://github.com/vercel-labs/skills#options)
 
-各コマンド例の `ja-text-communication` は、導入・更新・削除するスキル名に置き換えます。日本語版の `wait-what` を扱う場合は、`wait-what` を指定します。原版も同じ名前なので、同じ導入先では日本語版と原版のどちらを使うか選びます。
+各コマンド例の `ja-text-communication` は、導入・更新・削除するスキル名に置き換えます。GitHub・Giteaの操作用スキルは `github-gitea-operations` を指定します。日本語版の `wait-what` を扱う場合は、`wait-what` を指定します。原版も同じ名前なので、同じ導入先では日本語版と原版のどちらを使うか選びます。
 
 リモートからの導入は、対象スキルの変更をpushし、PRを `main` に取り込んでから行います。手元の変更を使う場合は、利用先のプロジェクトで、取得元にローカルの `skills/` のパスを指定します。
 
