@@ -1,0 +1,5 @@
+interface:
+  display_name: "図入りのHTML説明文書を作る"
+  short_description: "概念や仕組みを、図解入りのHTML文書として作成・編集します"
+policy:
+  allow_implicit_invocation: false
