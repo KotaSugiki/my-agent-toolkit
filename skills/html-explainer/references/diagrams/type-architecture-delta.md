@@ -37,7 +37,7 @@ Do not use a missing After node to stand for a removal without a `REMOVED` entry
 
 ## Public HTML metadata contract
 
-This is the authoring and validation surface, not a serialization inferred from visible labels. All attributes below are required where applicable; empty, boolean, duplicate, or malformed declarations are findings. IDs are case-sensitive and match `[A-Za-z][A-Za-z0-9_.:-]*`; they contain no whitespace.
+This is the authoring and validation surface, not a serialization inferred from visible labels. All attributes below are required where applicable (html-explainer: the verifier is not bundled, so declare them anyway and re-derive endpoints and signatures by hand); empty, boolean, duplicate, or malformed declarations are findings. IDs are case-sensitive and match `[A-Za-z][A-Za-z0-9_.:-]*`; they contain no whitespace.
 
 ### Diagram and snapshots
 
@@ -130,3 +130,9 @@ It is **not** a browser renderer or a proof of the source system. Authors remain
 - Redrawing an edge to a different component while keeping its endpoint metadata unchanged.
 - Counting retained objects twice to justify dropping other objects from the comparison.
 - Treating this comparison as an executable migration plan. Ordering, rollback, availability, and data consistency need their own explanation.
+
+## html-explainer notes
+- Geometry at 908 width (example): two snapshot panels of 288×440 (grid `288 440 4`) with a ledger body 204 wide between them. The panel names (BEFORE / CHANGES / AFTER) and their titles are required here, even though other figures carry no title (`index.md` §6).
+- Ledger text is 12px sans 500; the change words (ADDED / CHANGED / REWIRED) are mono 9px bold. Write "old → new" as "AからB" ("from A to B"): arrow characters are not figure symbols.
+- Show additions with 2px `ink` lines, changed components with a double outline, rewired relationships with a dash-dot (`7,3,2,3`), and changed connections with a 16px `Δ` badge beside the line (keep it clear of component corner badges). Do not use `accent`.
+- The scroll region and its visible hint are the standard ones in `output-spec.md` (`aria-label` ending 「横にスクロールできます」).

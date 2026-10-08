@@ -20,7 +20,7 @@ disable-model-invocation: true
    2. 選んだ `references/diagrams/type-*.md` を読む。型の記述が [index.md](references/diagrams/index.md) §8 の読み替えの対象なら、その表に従う
    3. [style-guide.md](references/diagrams/style-guide.md) のトークンと [output-spec.md](references/diagrams/output-spec.md) の組み込み(`.mb-figure` / `.mb-figure-frame` / `.diagram-scroll`、`viewBox` 幅 908)で描く
 5. **文書を仕上げる。** `design-system/` を成果物の隣へコピーし、下の読み込みを書く。コード、数式、表、引用は下の規則に従う
-6. **ブラウザで確認する。** ヘッドレスブラウザなど使える手段で描画し、スクリーンショットで見る。確かめる点は、図のラベルがはみ出していないこと、コネクタが直角で線がラベルに触れていないこと、色が黒・赤・青だけであること、赤の強調(コードのシンタックスハイライトを除く)が文書全体で1箇所以内であることである。幅 1400px と、狭い画面の幅 390px の2通りで撮る。ヘッドレスChromeの窓幅は約500pxで下げ止まるため、390px は幅 390px の `iframe` を置いた使い捨てのHTMLを撮る。狭い画面では図の一部が枠の外になり、横スクロールで見る仕様である。そのため、図だけに情報を置かず、要点を本文にも書く。使える手段がなければ、確認できなかったと報告する
+6. **ブラウザで確認する。** ヘッドレスブラウザなど使える手段で描画し、スクリーンショットで見る。確かめる点は、図のラベルがはみ出していないこと、コネクタが直角で線がラベルに触れていないこと、有彩色が赤とリンク青だけ(グレーは可)であること、赤の強調(コードのシンタックスハイライトを除く)が文書全体で1箇所以内であることである。文字の縁に色が付いて見えるのは、ClearType などの描画によるにじみで、色の違反ではない。幅 1400px と、狭い画面の幅 390px の2通りで撮る。ヘッドレスChromeの窓幅は約500pxで下げ止まるため、390px は幅 390px の `iframe` を置いた使い捨てのHTMLを撮る(高さも指定する。例: 2600px)。狭い画面では図の一部が枠の外になり、横スクロールで見る仕様である。そのため、図だけに情報を置かず、要点を本文にも書く。使える手段がなければ、確認できなかったと報告する
 7. **報告する。** 保存先のパス、図の種類と枚数、赤の強調の位置、確認できなかったことを簡潔に伝える。PDF化は利用者から明示的に頼まれた場合だけ、`render-pdf.sh <html-file>` を実行する(macOSとGoogle Chromeが必要)
 
 ## デザインシステム
@@ -35,7 +35,7 @@ disable-model-invocation: true
 <title>文書の題名</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Ubuntu+Sans:wght@400;500;700&family=Noto+Sans+JP:wght@400;500;700&family=Ubuntu+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Ubuntu+Sans:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;600;700&family=Ubuntu+Mono:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="./design-system/document.css">
 <script src="./design-system/math-copy.js"></script>
 <script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>

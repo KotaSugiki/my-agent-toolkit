@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>注文確定を非同期へ移行する: 構成・流れ・効果・進め方</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Ubuntu+Sans:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;600;700&family=Ubuntu+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../skills/html-explainer/design-system/document.css">
+<script src="../../skills/html-explainer/design-system/math-copy.js"></script>
+<script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
+<script>document.addEventListener("DOMContentLoaded", () => hljs.highlightAll());</script>
+<style>
+.diagram-scroll { overflow-x: auto; }
+figure.mb-figure .diagram-scroll svg { display: block; width: 100%; min-width: 908px; max-width: none; height: auto; }
+@media print {
+  .diagram-scroll { overflow-x: visible; }
+  figure.mb-figure .diagram-scroll svg { min-width: 0; max-width: 100%; }
+}
+</style>
+</head>
+<body>
+<div class="mb-page">
+
+<div class="mb-hero">
+
+<header class="mb-header">
+  <div>
+    <h1>注文確定を非同期へ移行する</h1>
+    <p class="mb-meta-line">backend onboarding / async order confirmation</p>
+  </div>
+</header>
+
+<p class="mb-lede">
+注文確定の処理を、注文APIが関連サービスを順に呼ぶ同期方式から、メッセージキューを介する非同期方式へ移します。この文書は、移行で何が変わるか、処理がどう流れるか、効果はどれほど見込めるか、どう進めるかを、9つの図でバックエンド開発の新人向けに説明します。数値と日付は、すべて説明用の仮の値です。
+</p>
+
+<nav class="mb-toc">
+  <ol>
+    <li><a href="#overview">背景と要点</a></li>
+    <li><a href="#delta">構成の変化</a></li>
+    <li><a href="#flow">注文確定の流れ</a></li>
+    <li><a href="#latency">応答時間の比較</a></li>
+    <li><a href="#queue">キューの滞留と通知の遅れ</a></li>
+    <li><a href="#priority">最初に移す処理</a></li>
+    <li><a href="#roles">役割分担と引き継ぎ</a></li>
+    <li><a href="#milestones">マイルストーン</a></li>
+    <li><a href="#schedule">作業の期間</a></li>
+    <li><a href="#limits">補足と限界</a></li>
+  </ol>
+</nav>
+
+<div class="mb-summary">
+  <ul>
+    <li>注文APIが同期で待つ相手は、在庫サービスと決済ゲートウェイの2つだけにする</li>
+    <li>出荷と通知は、確定を知らせるイベントをキューへ発行し、購読する側が応答の後で非同期に処理する</li>
+    <li>先に移すのは、決済の後に動き、手間が小さい処理。設計から全面切替まで、約19週間で進める</li>
+  </ul>
+</div>
+
+</div><!-- /.mb-hero -->
+
+<div class="mb-wrap">
+<main class="mb-main">
+
+<h2 id="overview">背景と要点</h2>
+
+<p>
+いまの注文確定は、注文APIが在庫サービス、決済ゲートウェイ、通知サービス、出荷サービスを同期で順に呼び、全部の結果がそろってから応答します。同期呼び出しは、相手の処理が終わるまで待ってから次へ進む呼び方です。呼び出しが1つ遅くなるだけで、待ち時間がそのまま応答時間に積み上がります。
+</p>
+
+<p>
+そこで、注文を確定するために結果が必要な処理だけを同期のまま残し、それ以外を非同期に移します。非同期処理は、結果を待たずに依頼だけを出し、相手が自分のペースで処理する方式です。依頼の受け渡しにはメッセージキューを使います。この文書では、構成の前後、処理の流れ、負荷試験の結果の例、移す順序、進め方の順に見ていきます。
+</p>
+
+<h2 id="delta">構成の変化</h2>
+
+<p>
+移行前は、注文APIが在庫サービス、決済ゲートウェイ、通知サービス、出荷サービスを同期で順に呼びます。どれか1つが遅いと待ち時間が積み上がり、Webアプリへの応答も遅れます。注文APIは最後に注文DBへ保存して応答します。
+</p>
+
+<p>
+移行後は、注文APIが同期で呼ぶ相手を在庫サービスと決済ゲートウェイの2つだけにします。注文DBへ保存した後、注文が確定したという知らせ(イベント)<code>order.confirmed</code> をメッセージキューへ発行して応答します。メッセージキューは、受け取った知らせを一時的に預かり、購読者へ順に配る仕組みです。出荷サービスと通知サービスはこのキューを購読し、注文APIの応答を待たせずに非同期で処理します。
+</p>
+
+<p>
+図1では、出荷と通知を起動する線の起点が、注文APIからメッセージキューへ付け替わっています。中央の変更台帳は、変わった点を1件ずつ書き出したものです。Webアプリへ返す応答の矢印は、行きの接続と対なので描いていません。この図は構造の前後だけを示し、切り替えの手順や失敗時の再送は含みません。
+</p>
+
+<figure class="mb-figure">
+  <div class="mb-figure-frame diagram-scroll" tabindex="0" role="region" aria-label="図1 注文確定の構成の前後比較(横にスクロールできます)">
+<svg data-diagram="architecture-delta" viewBox="0 0 908 628" role="img" aria-labelledby="delta-title delta-desc">
+<title id="delta-title">注文確定の構成: 移行前と移行後</title>
+<desc id="delta-desc">注文確定の構成を、同期の連鎖呼び出し(移行前)とメッセージキュー経由の非同期処理(移行後)で並べ、出荷サービスと通知サービスの起動元が注文APIからメッセージキューへ移る変更を示す図。</desc>
+<defs>
+<marker id="delta-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#595959"/></marker>
+<marker id="delta-arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2990DA"/></marker>
+<marker id="delta-arrow-ink" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#111110"/></marker>
+</defs>
+<text x="40" y="52" fill="#595959" font-size="8" font-weight="500" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" letter-spacing="0.18em">BEFORE</text>
+<text x="40" y="68" fill="#111110" font-size="14" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">現行：同期の連鎖呼び出し</text>
+<text x="352" y="52" fill="#595959" font-size="8" font-weight="500" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" letter-spacing="0.18em">CHANGES</text>
+<text x="352" y="68" fill="#111110" font-size="14" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">変更台帳</text>
+<text x="580" y="52" fill="#595959" font-size="8" font-weight="500" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" letter-spacing="0.18em">AFTER</text>
+<text x="580" y="68" fill="#111110" font-size="14" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">移行後：キュー経由の非同期処理</text>
+<line x1="40" y1="76" x2="328" y2="76" stroke="#DFDFDF" stroke-width="0.8"/>
+<line x1="352" y1="76" x2="556" y2="76" stroke="#DFDFDF" stroke-width="0.8"/>
+<line x1="580" y1="76" x2="868" y2="76" stroke="#DFDFDF" stroke-width="0.8"/>
+<line x1="340" y1="40" x2="340" y2="528" stroke="#DFDFDF" stroke-width="0.8"/>
+<line x1="568" y1="40" x2="568" y2="528" stroke="#DFDFDF" stroke-width="0.8"/>
+<g data-snapshot="before" data-grid="288 440 4" transform="translate(40 88)"><path data-kind="relationship" data-object-id="web-api" data-status="unchanged" data-signature="protocol=https;operation=POST /orders" data-from="web" data-to="orders-api" d="M72 64 V96" fill="none" stroke="#2990DA" stroke-width="1" marker-end="url(#delta-arrow-link)"/><path data-kind="relationship" data-object-id="api-inventory" data-status="unchanged" data-signature="mode=sync;purpose=check-stock" data-from="orders-api" data-to="inventory" d="M128 112 H160" fill="none" stroke="#2990DA" stroke-width="1" marker-end="url(#delta-arrow-link)"/><path data-kind="relationship" data-object-id="api-payment" data-status="unchanged" data-signature="mode=sync;purpose=authorize-payment" data-from="orders-api" data-to="payment-gw" d="M128 184 H160" fill="none" stroke="#2990DA" stroke-width="1" marker-end="url(#delta-arrow-link)"/><path data-kind="relationship" data-object-id="api-db" data-status="unchanged" data-signature="mode=sync;purpose=save-order" data-from="orders-api" data-to="orders-db" d="M128 256 H160" fill="none" stroke="#595959" stroke-width="1" marker-end="url(#delta-arrow)"/><path data-kind="relationship" data-object-id="ship-trigger" data-status="changed rewired" data-signature="mode=sync-call;purpose=start-shipping" data-from="orders-api" data-to="shipping" d="M92 272 V320 Q92 328 100 328 H160" fill="none" stroke="#2990DA" stroke-width="1.2" stroke-dasharray="7,3,2,3" marker-end="url(#delta-arrow-link)"/><path data-kind="relationship" data-object-id="notify-trigger" data-status="changed rewired" data-signature="mode=sync-call;purpose=send-mail" data-from="orders-api" data-to="notifier" d="M52 272 V392 Q52 400 60 400 H160" fill="none" stroke="#2990DA" stroke-width="1.2" stroke-dasharray="7,3,2,3" marker-end="url(#delta-arrow-link)"/><rect x="80" y="72" width="68" height="16" rx="2" fill="#FFFFFF"/><text x="114.0" y="83" fill="#767676" font-size="8" font-weight="400" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle" letter-spacing="0.06em">POST /orders</text><rect x="136" y="304" width="16" height="16" rx="2" fill="#FFFFFF" stroke="#111110" stroke-width="1.2"/><polygon points="144 307.5 149 316 139 316" fill="none" stroke="#111110" stroke-width="1.4" stroke-linejoin="miter"/><rect x="136" y="376" width="16" height="16" rx="2" fill="#FFFFFF" stroke="#111110" stroke-width="1.2"/><polygon points="144 379.5 149 388 139 388" fill="none" stroke="#111110" stroke-width="1.4" stroke-linejoin="miter"/><g data-kind="component" data-object-id="web" data-status="unchanged" data-signature="name=Webアプリ;role=client"><rect x="16" y="16" width="112" height="48" rx="6" fill="#FFFFFF"/><rect data-role="bounds" x="16" y="16" width="112" height="48" rx="6" fill="#FFFFFF" stroke="#111110" stroke-width="1"/><text x="72" y="37.0" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">Webアプリ</text><text x="72" y="51.5" fill="#595959" font-size="9" font-weight="400" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">web</text></g><g data-kind="component" data-object-id="orders-api" data-status="changed" data-signature="name=注文API;mode=sync-chain;sync-calls=inventory,payment-gw,notifier,shipping"><rect x="16" y="96" width="112" height="176" rx="6" fill="#FFFFFF"/><rect data-role="bounds" x="16" y="96" width="112" height="176" rx="6" fill="#FFFFFF" stroke="#111110" stroke-width="1"/><text x="72" y="173.0" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">注文API</text><text x="72" y="189.0" fill="#595959" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">同期で順に呼ぶ</text><text x="72" y="203.5" fill="#595959" font-size="9" font-weight="400" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">orders-api</text><rect x="20" y="100" width="104" height="168" rx="3" fill="none" stroke="#111110" stroke-width="0.8"/></g><g data-kind="component" data-object-id="inventory" data-status="unchanged" data-signature="name=在庫サービス"><rect x="160" y="88" width="112" height="48" rx="6" fill="#FFFFFF"/><rect data-role="bounds" x="160" y="88" width="112" height="48" rx="6" fill="#FFFFFF" stroke="#111110" stroke-width="1"/><text x="216" y="109.0" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">在庫サービス</text><text x="216" y="123.5" fill="#595959" font-size="9" font-weight="400" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">inventory</text></g><g data-kind="component" data-object-id="payment-gw" data-status="unchanged" data-signature="name=決済ゲートウェイ;kind=external"><rect x="160" y="160" width="112" height="48" rx="6" fill="#FFFFFF"/><rect data-role="bounds" x="160" y="160" width="112" height="48" rx="6" fill="#111110" fill-opacity="0.03" stroke="#111110" stroke-opacity="0.3" stroke-width="1"/><text x="216" y="181.0" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">決済ゲートウェイ</text><text x="216" y="195.5" fill="#595959" font-size="9" font-weight="400" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">payment-gw</text></g><g data-kind="component" data-object-id="orders-db" data-status="unchanged" data-signature="name=注文DB;kind=store"><rect x="160" y="232" width="112" height="48" rx="6" fill="#FFFFFF"/><rect data-role="bounds" x="160" y="232" width="112" height="48" rx="6" fill="#FFFFFF" stroke="#111110" stroke-width="1"/><text x="216" y="253.0" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">注文DB</text><text x="216" y="267.5" fill="#595959" font-size="9" font-weight="400" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">orders-db</text></g><g data-kind="component" data-object-id="shipping" data-status="unchanged" data-signature="name=出荷サービス"><rect x="160" y="304" width="112" height="48" rx="6" fill="#FFFFFF"/><rect data-role="bounds" x="160" y="304" width="112" height="48" rx="6" fill="#FFFFFF" stroke="#111110" stroke-width="1"/><text x="216" y="325.0" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">出荷サービス</text><text x="216" y="339.5" fill="#595959" font-size="9" font-weight="400" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">shipping</text></g><g data-kind="component" data-object-id="notifier" data-status="unchanged" data-signature="name=通知サービス;channel=mail"><rect x="160" y="376" width="112" height="48" rx="6" fill="#FFFFFF"/><rect data-role="bounds" x="160" y="376" width="112" height="48" rx="6" fill="#FFFFFF" stroke="#111110" stroke-width="1"/><text x="216" y="397.0" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">通知サービス</text><text x="216" y="411.5" fill="#595959" font-size="9" font-weight="400" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">notifier</text></g></g>
+<g data-snapshot="after" data-grid="288 440 4" transform="translate(580 88)"><path data-kind="relationship" data-object-id="web-api" data-status="unchanged" data-signature="protocol=https;operation=POST /orders" data-from="web" data-to="orders-api" d="M72 64 V96" fill="none" stroke="#2990DA" stroke-width="1" marker-end="url(#delta-arrow-link)"/><path data-kind="relationship" data-object-id="api-inventory" data-status="unchanged" data-signature="mode=sync;purpose=check-stock" data-from="orders-api" data-to="inventory" d="M128 112 H160" fill="none" stroke="#2990DA" stroke-width="1" marker-end="url(#delta-arrow-link)"/><path data-kind="relationship" data-object-id="api-payment" data-status="unchanged" data-signature="mode=sync;purpose=authorize-payment" data-from="orders-api" data-to="payment-gw" d="M128 184 H160" fill="none" stroke="#2990DA" stroke-width="1" marker-end="url(#delta-arrow-link)"/><path data-kind="relationship" data-object-id="api-db" data-status="unchanged" data-signature="mode=sync;purpose=save-order" data-from="orders-api" data-to="orders-db" d="M128 256 H160" fill="none" stroke="#595959" stroke-width="1" marker-end="url(#delta-arrow)"/><path data-kind="relationship" data-object-id="publish" data-status="added" data-signature="mode=publish;event=order.confirmed" data-from="orders-api" data-to="order-queue" d="M72 272 V304" fill="none" stroke="#111110" stroke-width="2" marker-end="url(#delta-arrow-ink)"/><path data-kind="relationship" data-object-id="ship-trigger" data-status="changed rewired" data-signature="mode=async-subscribe;event=order.confirmed;purpose=start-shipping" data-from="order-queue" data-to="shipping" d="M128 328 H160" fill="none" stroke="#595959" stroke-width="1.2" stroke-dasharray="7,3,2,3" marker-end="url(#delta-arrow)"/><path data-kind="relationship" data-object-id="notify-trigger" data-status="changed rewired" data-signature="mode=async-subscribe;event=order.confirmed;purpose=send-mail" data-from="order-queue" data-to="notifier" d="M128 400 H160" fill="none" stroke="#595959" stroke-width="1.2" stroke-dasharray="7,3,2,3" marker-end="url(#delta-arrow)"/><rect x="80" y="72" width="68" height="16" rx="2" fill="#FFFFFF"/><text x="114.0" y="83" fill="#767676" font-size="8" font-weight="400" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle" letter-spacing="0.06em">POST /orders</text><rect x="136" y="304" width="16" height="16" rx="2" fill="#FFFFFF" stroke="#111110" stroke-width="1.2"/><polygon points="144 307.5 149 316 139 316" fill="none" stroke="#111110" stroke-width="1.4" stroke-linejoin="miter"/><rect x="136" y="376" width="16" height="16" rx="2" fill="#FFFFFF" stroke="#111110" stroke-width="1.2"/><polygon points="144 379.5 149 388 139 388" fill="none" stroke="#111110" stroke-width="1.4" stroke-linejoin="miter"/><rect x="80" y="280" width="16" height="16" rx="2" fill="#FFFFFF" stroke="#111110" stroke-width="1.2"/><line x1="84" y1="288" x2="92" y2="288" stroke="#111110" stroke-width="1.6"/><line x1="88" y1="284" x2="88" y2="292" stroke="#111110" stroke-width="1.6"/><g data-kind="component" data-object-id="web" data-status="unchanged" data-signature="name=Webアプリ;role=client"><rect x="16" y="16" width="112" height="48" rx="6" fill="#FFFFFF"/><rect data-role="bounds" x="16" y="16" width="112" height="48" rx="6" fill="#FFFFFF" stroke="#111110" stroke-width="1"/><text x="72" y="37.0" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">Webアプリ</text><text x="72" y="51.5" fill="#595959" font-size="9" font-weight="400" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">web</text></g><g data-kind="component" data-object-id="orders-api" data-status="changed" data-signature="name=注文API;mode=sync-plus-publish;sync-calls=inventory,payment-gw;publishes=order.confirmed"><rect x="16" y="96" width="112" height="176" rx="6" fill="#FFFFFF"/><rect data-role="bounds" x="16" y="96" width="112" height="176" rx="6" fill="#FFFFFF" stroke="#111110" stroke-width="1"/><text x="72" y="173.0" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">注文API</text><text x="72" y="189.0" fill="#595959" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">同期2件と発行</text><text x="72" y="203.5" fill="#595959" font-size="9" font-weight="400" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">orders-api</text><rect x="20" y="100" width="104" height="168" rx="3" fill="none" stroke="#111110" stroke-width="0.8"/></g><g data-kind="component" data-object-id="inventory" data-status="unchanged" data-signature="name=在庫サービス"><rect x="160" y="88" width="112" height="48" rx="6" fill="#FFFFFF"/><rect data-role="bounds" x="160" y="88" width="112" height="48" rx="6" fill="#FFFFFF" stroke="#111110" stroke-width="1"/><text x="216" y="109.0" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">在庫サービス</text><text x="216" y="123.5" fill="#595959" font-size="9" font-weight="400" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">inventory</text></g><g data-kind="component" data-object-id="payment-gw" data-status="unchanged" data-signature="name=決済ゲートウェイ;kind=external"><rect x="160" y="160" width="112" height="48" rx="6" fill="#FFFFFF"/><rect data-role="bounds" x="160" y="160" width="112" height="48" rx="6" fill="#111110" fill-opacity="0.03" stroke="#111110" stroke-opacity="0.3" stroke-width="1"/><text x="216" y="181.0" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">決済ゲートウェイ</text><text x="216" y="195.5" fill="#595959" font-size="9" font-weight="400" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">payment-gw</text></g><g data-kind="component" data-object-id="orders-db" data-status="unchanged" data-signature="name=注文DB;kind=store"><rect x="160" y="232" width="112" height="48" rx="6" fill="#FFFFFF"/><rect data-role="bounds" x="160" y="232" width="112" height="48" rx="6" fill="#FFFFFF" stroke="#111110" stroke-width="1"/><text x="216" y="253.0" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">注文DB</text><text x="216" y="267.5" fill="#595959" font-size="9" font-weight="400" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">orders-db</text></g><g data-kind="component" data-object-id="shipping" data-status="unchanged" data-signature="name=出荷サービス"><rect x="160" y="304" width="112" height="48" rx="6" fill="#FFFFFF"/><rect data-role="bounds" x="160" y="304" width="112" height="48" rx="6" fill="#FFFFFF" stroke="#111110" stroke-width="1"/><text x="216" y="325.0" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">出荷サービス</text><text x="216" y="339.5" fill="#595959" font-size="9" font-weight="400" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">shipping</text></g><g data-kind="component" data-object-id="notifier" data-status="unchanged" data-signature="name=通知サービス;channel=mail"><rect x="160" y="376" width="112" height="48" rx="6" fill="#FFFFFF"/><rect data-role="bounds" x="160" y="376" width="112" height="48" rx="6" fill="#FFFFFF" stroke="#111110" stroke-width="1"/><text x="216" y="397.0" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">通知サービス</text><text x="216" y="411.5" fill="#595959" font-size="9" font-weight="400" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">notifier</text></g><g data-kind="component" data-object-id="order-queue" data-status="added" data-signature="name=メッセージキュー;event=order.confirmed"><rect x="16" y="304" width="112" height="120" rx="6" fill="#FFFFFF"/><rect data-role="bounds" x="16" y="304" width="112" height="120" rx="6" fill="#FFFFFF" stroke="#111110" stroke-width="2"/><text x="72" y="354.0" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">メッセージキュー</text><text x="72" y="368.5" fill="#595959" font-size="9" font-weight="400" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">order-queue</text><text x="72" y="382.5" fill="#595959" font-size="9" font-weight="400" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">order.confirmed</text><rect x="8" y="296" width="16" height="16" rx="2" fill="#FFFFFF" stroke="#111110" stroke-width="1.2"/><line x1="12" y1="304" x2="20" y2="304" stroke="#111110" stroke-width="1.6"/><line x1="16" y1="300" x2="16" y2="308" stroke="#111110" stroke-width="1.6"/></g></g>
+<text data-change="ADDED" data-target="order-queue" x="352" y="104" fill="#111110" font-size="12" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif"><tspan font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" font-size="9" font-weight="700" letter-spacing="0.08em">ADDED </tspan><tspan font-weight="600">メッセージキュー</tspan><tspan x="352" dy="16" font-weight="500" fill="#595959">order.confirmed を受け取り、</tspan><tspan x="352" dy="16" font-weight="500" fill="#595959">購読者へ配る部品を新設</tspan></text><line x1="352" y1="144" x2="556" y2="144" stroke="#DFDFDF" stroke-width="0.8"/><text data-change="ADDED" data-target="publish" x="352" y="164" fill="#111110" font-size="12" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif"><tspan font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" font-size="9" font-weight="700" letter-spacing="0.08em">ADDED </tspan><tspan font-weight="600">キューへの発行</tspan><tspan x="352" dy="16" font-weight="500" fill="#595959">注文API が保存後に</tspan><tspan x="352" dy="16" font-weight="500" fill="#595959">order.confirmed を発行</tspan></text><line x1="352" y1="204" x2="556" y2="204" stroke="#DFDFDF" stroke-width="0.8"/><text data-change="CHANGED" data-target="orders-api" x="352" y="224" fill="#111110" font-size="12" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif"><tspan font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" font-size="9" font-weight="700" letter-spacing="0.08em">CHANGED </tspan><tspan font-weight="600">注文API</tspan><tspan x="352" dy="16" font-weight="500" fill="#595959">4件を同期で順に呼ぶ方式から、</tspan><tspan x="352" dy="16" font-weight="500" fill="#595959">同期2件とイベント発行の</tspan><tspan x="352" dy="16" font-weight="500" fill="#595959">方式へ</tspan></text><line x1="352" y1="280" x2="556" y2="280" stroke="#DFDFDF" stroke-width="0.8"/><text data-change="REWIRED" data-target="ship-trigger" x="352" y="300" fill="#111110" font-size="12" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif"><tspan font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" font-size="9" font-weight="700" letter-spacing="0.08em">REWIRED </tspan><tspan font-weight="600">出荷サービスの起動</tspan><tspan x="352" dy="16" font-weight="500" fill="#595959">起点を注文API からメッセージ</tspan><tspan x="352" dy="16" font-weight="500" fill="#595959">キューへ付け替え</tspan></text><line x1="352" y1="340" x2="556" y2="340" stroke="#DFDFDF" stroke-width="0.8"/><text data-change="CHANGED" data-target="ship-trigger" x="352" y="360" fill="#111110" font-size="12" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif"><tspan font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" font-size="9" font-weight="700" letter-spacing="0.08em">CHANGED </tspan><tspan font-weight="600">出荷サービスの起動</tspan><tspan x="352" dy="16" font-weight="500" fill="#595959">同期呼び出しから</tspan><tspan x="352" dy="16" font-weight="500" fill="#595959">非同期の購読へ</tspan></text><line x1="352" y1="400" x2="556" y2="400" stroke="#DFDFDF" stroke-width="0.8"/><text data-change="REWIRED" data-target="notify-trigger" x="352" y="420" fill="#111110" font-size="12" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif"><tspan font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" font-size="9" font-weight="700" letter-spacing="0.08em">REWIRED </tspan><tspan font-weight="600">通知サービスの起動</tspan><tspan x="352" dy="16" font-weight="500" fill="#595959">起点を注文API からメッセージ</tspan><tspan x="352" dy="16" font-weight="500" fill="#595959">キューへ付け替え</tspan></text><line x1="352" y1="460" x2="556" y2="460" stroke="#DFDFDF" stroke-width="0.8"/><text data-change="CHANGED" data-target="notify-trigger" x="352" y="480" fill="#111110" font-size="12" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif"><tspan font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" font-size="9" font-weight="700" letter-spacing="0.08em">CHANGED </tspan><tspan font-weight="600">通知サービスの起動</tspan><tspan x="352" dy="16" font-weight="500" fill="#595959">同期呼び出しから</tspan><tspan x="352" dy="16" font-weight="500" fill="#595959">非同期の購読へ</tspan></text>
+<line x1="40" y1="540" x2="868" y2="540" stroke="#DFDFDF" stroke-width="0.8"/><text x="40" y="567" fill="#595959" font-size="8" font-weight="400" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" letter-spacing="0.14em">LEGEND</text><rect x="108" y="556" width="16" height="16" rx="2" fill="#FFFFFF" stroke="#111110" stroke-width="1.2"/><line x1="112" y1="564" x2="120" y2="564" stroke="#111110" stroke-width="1.6"/><line x1="116" y1="560" x2="116" y2="568" stroke="#111110" stroke-width="1.6"/><text x="132" y="568" fill="#111110" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">追加</text><rect x="184" y="556" width="16" height="16" rx="2" fill="#FFFFFF" stroke="#111110" stroke-width="1.2"/><polygon points="192 559.5 197 568 187 568" fill="none" stroke="#111110" stroke-width="1.4" stroke-linejoin="miter"/><text x="208" y="568" fill="#111110" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">変更した接続</text><rect x="308" y="556" width="24" height="16" rx="3" fill="#FFFFFF" stroke="#111110" stroke-width="1"/><rect x="312" y="560" width="16" height="8" rx="2" fill="none" stroke="#111110" stroke-width="0.8"/><text x="340" y="568" fill="#111110" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">変更した部品</text><line x1="440" y1="564" x2="472" y2="564" stroke="#595959" stroke-width="1.2" stroke-dasharray="7,3,2,3"/><text x="480" y="568" fill="#111110" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">付け替え</text><line x1="556" y1="564" x2="588" y2="564" stroke="#2990DA" stroke-width="1"/><polygon points="588 561 595 564 588 567" fill="#2990DA"/><text x="604" y="568" fill="#111110" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">HTTP/API 呼び出し</text><rect x="744" y="556" width="24" height="16" rx="4" fill="#111110" fill-opacity="0.03" stroke="#111110" stroke-opacity="0.30"/><text x="776" y="568" fill="#111110" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">外部サービス</text>
+</svg>
+  </div>
+  <figcaption>図1　注文確定の構成の前後比較(中央は変更台帳。狭い画面では横にスクロールして見る)</figcaption>
+</figure>
+
+<h2 id="flow">注文確定の流れ</h2>
+
+<p>
+Webアプリから <code>POST /orders</code> を受けた注文APIは、外部サービスである決済ゲートウェイを呼び、承認を待ってから注文を注文DBに保存します。そのうえで、確定を知らせる <code>order.confirmed</code> イベントをメッセージキューへ発行し、Webアプリへ <code>201 Created</code>(作成に成功したことを示すHTTPステータス)を返します。Webアプリが待つのは、ここまでです。在庫サービスの呼び出しもこの区間に含まれますが、図2では省いています。
+</p>
+
+<p>
+出荷サービスは、キューを購読して(届くイベントを受け取る登録をして)います。イベントの配信は応答の後に行われるため、出荷の処理が遅れても失敗しても、注文の応答時間には影響しません。通知サービスも出荷サービスと同じ形でキューを購読するので、図2から省いています。図の実線は応答を待つ同期の呼び出し、破線は戻りと、応答を待たない非同期の送信です。
+</p>
+
+<figure class="mb-figure">
+  <div class="mb-figure-frame diagram-scroll" tabindex="0" role="region" aria-label="図2 移行後の注文確定のシーケンス(横にスクロールできます)">
+<svg viewBox="0 0 908 660" role="img" aria-labelledby="seq-title seq-desc">
+<title id="seq-title">移行後の注文確定を時間順に追うシーケンス図</title>
+<desc id="seq-desc">Webアプリからの注文を注文APIが決済ゲートウェイの承認後に保存し、order.confirmedイベントをキューへ発行して201を返し、その後で出荷サービスへ非同期に配信される流れ。</desc>
+<defs>
+<marker id="seq-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#595959"/></marker>
+<marker id="seq-arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2990DA"/></marker>
+<marker id="seq-arrow-ink" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#111110"/></marker>
+<marker id="seq-arrow-open" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polyline points="0 0, 8 3, 0 6" fill="none" stroke="#595959" stroke-width="1.2"/></marker>
+</defs>
+<rect x="596" y="424" width="216" height="120" rx="4" fill="rgba(17,17,16,0.02)" stroke="rgba(17,17,16,0.22)" stroke-width="1"/>
+<line x1="116" y1="88" x2="116" y2="560" stroke="rgba(17,17,16,0.20)" stroke-width="1" stroke-dasharray="3,3"/>
+<line x1="284" y1="88" x2="284" y2="560" stroke="rgba(17,17,16,0.20)" stroke-width="1" stroke-dasharray="3,3"/>
+<line x1="452" y1="88" x2="452" y2="560" stroke="rgba(17,17,16,0.20)" stroke-width="1" stroke-dasharray="3,3"/>
+<line x1="620" y1="88" x2="620" y2="560" stroke="rgba(17,17,16,0.20)" stroke-width="1" stroke-dasharray="3,3"/>
+<line x1="788" y1="88" x2="788" y2="560" stroke="rgba(17,17,16,0.20)" stroke-width="1" stroke-dasharray="3,3"/>
+<rect x="112" y="120" width="8" height="288" fill="#FFFFFF"/>
+<rect x="112" y="120" width="8" height="288" fill="rgba(17,17,16,0.06)" stroke="#595959" stroke-width="0.8"/>
+<rect x="280" y="120" width="8" height="288" fill="#FFFFFF"/>
+<rect x="280" y="120" width="8" height="288" fill="rgba(17,17,16,0.06)" stroke="#595959" stroke-width="0.8"/>
+<rect x="448" y="168" width="8" height="64" fill="#FFFFFF"/>
+<rect x="448" y="168" width="8" height="64" fill="rgba(17,17,16,0.06)" stroke="#595959" stroke-width="0.8"/>
+<rect x="616" y="344" width="8" height="20" fill="#FFFFFF"/>
+<rect x="616" y="344" width="8" height="20" fill="rgba(17,17,16,0.06)" stroke="#595959" stroke-width="0.8"/>
+<rect x="616" y="484" width="8" height="20" fill="#FFFFFF"/>
+<rect x="616" y="484" width="8" height="20" fill="rgba(17,17,16,0.06)" stroke="#595959" stroke-width="0.8"/>
+<rect x="784" y="484" width="8" height="40" fill="#FFFFFF"/>
+<rect x="784" y="484" width="8" height="40" fill="rgba(17,17,16,0.06)" stroke="#595959" stroke-width="0.8"/>
+<line x1="120" y1="128" x2="280" y2="128" stroke="#2990DA" stroke-width="1" marker-end="url(#seq-arrow-link)"/>
+<line x1="288" y1="176" x2="448" y2="176" stroke="#2990DA" stroke-width="1" marker-end="url(#seq-arrow-link)"/>
+<line x1="448" y1="224" x2="288" y2="224" stroke="#595959" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#seq-arrow)"/>
+<path d="M 288 272 H 308 A 8 8 0 0 1 316 280 V 296 A 8 8 0 0 1 308 304 H 288" fill="none" stroke="#595959" stroke-width="1" marker-end="url(#seq-arrow)"/>
+<line x1="288" y1="352" x2="616" y2="352" stroke="#595959" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#seq-arrow-open)"/>
+<line x1="280" y1="400" x2="122" y2="400" stroke="#111110" stroke-width="2" marker-end="url(#seq-arrow-ink)"/>
+<line x1="624" y1="492" x2="784" y2="492" stroke="#595959" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#seq-arrow-open)"/>
+<rect x="168" y="104" width="68" height="16" rx="2" fill="#FFFFFF"/>
+<text x="202.0" y="115" fill="#595959" font-size="8" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle" letter-spacing="0.06em">POST /orders</text>
+<rect x="336" y="152" width="68" height="16" rx="2" fill="#FFFFFF"/>
+<text x="370.0" y="164" fill="#595959" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">決済を依頼</text>
+<rect x="352" y="200" width="32" height="16" rx="2" fill="#FFFFFF"/>
+<text x="368.0" y="212" fill="#595959" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">承認</text>
+<rect x="324" y="280" width="84" height="16" rx="2" fill="#FFFFFF"/>
+<text x="366.0" y="292" fill="#595959" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">注文DBに保存</text>
+<rect x="300" y="328" width="84" height="16" rx="2" fill="#FFFFFF"/>
+<text x="342.0" y="339" fill="#595959" font-size="8" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle" letter-spacing="0.06em">order.confirmed</text>
+<rect x="168" y="376" width="64" height="16" rx="2" fill="#FFFFFF"/>
+<text x="200.0" y="387" fill="#111110" font-size="8" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle" letter-spacing="0.06em">201 Created</text>
+<rect x="664" y="468" width="80" height="16" rx="2" fill="#FAFAFA"/>
+<text x="704.0" y="480" fill="#595959" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">イベント配信</text>
+<rect x="596" y="424" width="40" height="16" rx="2" fill="#FFFFFF" stroke="rgba(17,17,16,0.22)" stroke-width="1"/>
+<text x="616" y="436" fill="#595959" font-size="8" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle" letter-spacing="0.12em">OPT</text>
+<text x="608" y="456" fill="#595959" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">[購読中のみ]</text>
+<rect x="44" y="40" width="144" height="48" rx="6" fill="#FFFFFF"/>
+<rect x="44" y="40" width="144" height="48" rx="6" fill="rgba(89,89,89,0.10)" stroke="#767676" stroke-width="1"/>
+<text x="116" y="62" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">Webアプリ</text>
+<text x="116" y="77" fill="#595959" font-size="9" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">client</text>
+<rect x="212" y="40" width="144" height="48" rx="6" fill="#FFFFFF"/>
+<rect x="212" y="40" width="144" height="48" rx="6" fill="#FFFFFF" stroke="#111110" stroke-width="1"/>
+<text x="284" y="62" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">注文API</text>
+<text x="284" y="77" fill="#595959" font-size="9" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">order-api</text>
+<rect x="380" y="40" width="144" height="48" rx="6" fill="#FFFFFF"/>
+<rect x="380" y="40" width="144" height="48" rx="6" fill="rgba(17,17,16,0.03)" stroke="rgba(17,17,16,0.30)" stroke-width="1"/>
+<text x="452" y="62" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">決済ゲートウェイ</text>
+<text x="452" y="77" fill="#595959" font-size="9" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">external</text>
+<rect x="548" y="40" width="144" height="48" rx="6" fill="#FFFFFF"/>
+<rect x="548" y="40" width="144" height="48" rx="6" fill="rgba(17,17,16,0.05)" stroke="#595959" stroke-width="1"/>
+<text x="620" y="62" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">メッセージキュー</text>
+<text x="620" y="77" fill="#595959" font-size="9" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">broker</text>
+<rect x="716" y="40" width="144" height="48" rx="6" fill="#FFFFFF"/>
+<rect x="716" y="40" width="144" height="48" rx="6" fill="#FFFFFF" stroke="#111110" stroke-width="1"/>
+<text x="788" y="62" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">出荷サービス</text>
+<text x="788" y="77" fill="#595959" font-size="9" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">shipping</text>
+<line x1="40" y1="568" x2="868" y2="568" stroke="rgba(17,17,16,0.10)" stroke-width="0.8"/>
+<text x="40" y="596" fill="#595959" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">凡例</text>
+<line x1="100" y1="592" x2="132" y2="592" stroke="#2990DA" stroke-width="1" marker-end="url(#seq-arrow-link)"/>
+<text x="140" y="596" fill="#595959" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">同期の呼び出し (HTTP)</text>
+<line x1="304" y1="592" x2="336" y2="592" stroke="#595959" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#seq-arrow)"/>
+<text x="344" y="596" fill="#595959" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">戻り</text>
+<line x1="396" y1="592" x2="428" y2="592" stroke="#595959" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#seq-arrow-open)"/>
+<text x="436" y="596" fill="#595959" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">非同期イベント</text>
+<line x1="548" y1="592" x2="580" y2="592" stroke="#111110" stroke-width="2" marker-end="url(#seq-arrow-ink)"/>
+<text x="588" y="596" fill="#595959" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">注文確定の応答</text>
+<rect x="700" y="584" width="8" height="16" fill="rgba(17,17,16,0.06)" stroke="#595959" stroke-width="0.8"/>
+<text x="716" y="596" fill="#595959" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">処理を持つ区間</text>
+</svg>
+  </div>
+  <figcaption>図2　移行後の注文確定のシーケンス（在庫サービス・注文DB・通知サービスは省略。名称は説明用）</figcaption>
+</figure>
+
+<p>
+同じ流れを、担当するサービスの側から見たのが図3です。横方向が処理の順、縦方向が担当するサービスで、ステップ1〜4が同期、5〜6が非同期です。太枠の「注文確定」が、同期と非同期の境目です。実線の矢印は同期の引き継ぎ、破線の矢印はキュー経由の非同期の受け渡しを表します。矢印は処理の順序を表すので、在庫サービスと決済ゲートウェイを実際に呼ぶのは、どちらも注文APIです。
+</p>
+
+<figure class="mb-figure">
+  <div class="mb-figure-frame diagram-scroll" tabindex="0" role="region" aria-label="図3 移行後の注文確定の流れ(横にスクロールできます)">
+<svg viewBox="0 0 908 620" role="img" aria-labelledby="proc-title proc-desc">
+<title id="proc-title">移行後の注文確定の流れ(担当サービス別)</title>
+<desc id="proc-desc">注文APIが在庫サービスと決済ゲートウェイを同期で呼んで注文を確定し、order.confirmed をキューへ発行した後、出荷サービスと通知サービスが非同期に処理する流れ。</desc>
+<defs>
+<marker id="proc-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#595959"/></marker>
+<marker id="proc-arrow-sm" markerWidth="6" markerHeight="5" refX="5" refY="2.5" orient="auto"><polygon points="0 0, 6 2.5, 0 5" fill="#595959"/></marker>
+</defs>
+<line x1="40" y1="80" x2="868" y2="80" stroke="rgba(17,17,16,0.12)" stroke-width="0.8"/>
+<line x1="40" y1="168" x2="868" y2="168" stroke="rgba(17,17,16,0.12)" stroke-width="0.8"/>
+<line x1="40" y1="256" x2="868" y2="256" stroke="rgba(17,17,16,0.12)" stroke-width="0.8"/>
+<line x1="40" y1="344" x2="868" y2="344" stroke="rgba(17,17,16,0.12)" stroke-width="0.8"/>
+<line x1="40" y1="432" x2="868" y2="432" stroke="rgba(17,17,16,0.12)" stroke-width="0.8"/>
+<line x1="40" y1="520" x2="868" y2="520" stroke="rgba(17,17,16,0.12)" stroke-width="0.8"/>
+<line x1="148" y1="80" x2="148" y2="520" stroke="rgba(17,17,16,0.20)" stroke-width="1"/>
+<rect x="200" y="44" width="16" height="16" rx="8" fill="rgba(17,17,16,0.12)"/>
+<text x="208" y="56" fill="#111110" font-size="11" font-weight="700" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">1</text>
+<text x="208" y="74" fill="#595959" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">同期</text>
+<rect x="320" y="44" width="16" height="16" rx="8" fill="rgba(17,17,16,0.12)"/>
+<text x="328" y="56" fill="#111110" font-size="11" font-weight="700" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">2</text>
+<text x="328" y="74" fill="#595959" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">同期</text>
+<rect x="440" y="44" width="16" height="16" rx="8" fill="rgba(17,17,16,0.12)"/>
+<text x="448" y="56" fill="#111110" font-size="11" font-weight="700" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">3</text>
+<text x="448" y="74" fill="#595959" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">同期</text>
+<rect x="560" y="44" width="16" height="16" rx="8" fill="#111110"/>
+<text x="568" y="56" fill="#FFFFFF" font-size="11" font-weight="700" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">4</text>
+<text x="568" y="74" fill="#111110" font-size="12" font-weight="700" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">同期</text>
+<rect x="680" y="44" width="16" height="16" rx="8" fill="rgba(17,17,16,0.12)"/>
+<text x="688" y="56" fill="#111110" font-size="11" font-weight="700" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">5</text>
+<text x="688" y="74" fill="#595959" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">非同期</text>
+<rect x="800" y="44" width="16" height="16" rx="8" fill="rgba(17,17,16,0.12)"/>
+<text x="808" y="56" fill="#111110" font-size="11" font-weight="700" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">6</text>
+<text x="808" y="74" fill="#595959" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">非同期</text>
+<text x="94" y="122" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">注文API</text>
+<text x="94" y="138" fill="#595959" font-size="9" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle" letter-spacing="0.08em">API</text>
+<text x="94" y="210" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">在庫サービス</text>
+<text x="94" y="226" fill="#595959" font-size="9" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle" letter-spacing="0.08em">INV</text>
+<text x="94" y="298" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">決済ゲートウェイ</text>
+<text x="94" y="314" fill="#595959" font-size="9" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle" letter-spacing="0.08em">PGW</text>
+<text x="94" y="386" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">出荷サービス</text>
+<text x="94" y="402" fill="#595959" font-size="9" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle" letter-spacing="0.08em">SHP</text>
+<text x="94" y="474" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">通知サービス</text>
+<text x="94" y="490" fill="#595959" font-size="9" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle" letter-spacing="0.08em">NTF</text>
+<path d="M 256,124 H 320 Q 328,124 328,132 V 176" fill="none" stroke="#595959" stroke-width="1" marker-end="url(#proc-arrow)"/>
+<path d="M 376,212 H 440 Q 448,212 448,220 V 264" fill="none" stroke="#595959" stroke-width="1" marker-end="url(#proc-arrow)"/>
+<path d="M 496,300 H 560 Q 568,300 568,292 V 160" fill="none" stroke="#595959" stroke-width="1" marker-end="url(#proc-arrow)"/>
+<path d="M 616,136 H 680 Q 688,136 688,144 V 352" fill="none" stroke="#595959" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#proc-arrow-sm)"/>
+<path d="M 616,112 H 800 Q 808,112 808,120 V 440" fill="none" stroke="#595959" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#proc-arrow-sm)"/>
+<g>
+<rect x="160" y="88" width="96" height="72" rx="6" fill="#FFFFFF"/>
+<rect x="160" y="88" width="96" height="72" rx="6" fill="#FFFFFF" stroke="#111110" stroke-width="1"/>
+<rect x="168" y="96" width="28" height="12" rx="2" fill="rgba(17,17,16,0.12)"/>
+<text x="182" y="105" fill="#111110" font-size="8" font-weight="600" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle" letter-spacing="0.08em">API</text>
+<text x="208" y="124" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">注文受付</text>
+<text x="208" y="136" fill="#595959" font-size="9" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">POST /orders</text>
+<rect x="224" y="144" width="24" height="10" rx="2" fill="#111110"/>
+<text x="236" y="152" fill="#FFFFFF" font-size="8" font-weight="700" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">ORD</text>
+</g>
+<g>
+<rect x="280" y="176" width="96" height="72" rx="6" fill="#FFFFFF"/>
+<rect x="280" y="176" width="96" height="72" rx="6" fill="#FFFFFF" stroke="#111110" stroke-width="1"/>
+<rect x="288" y="184" width="28" height="12" rx="2" fill="rgba(17,17,16,0.12)"/>
+<text x="302" y="193" fill="#111110" font-size="8" font-weight="600" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle" letter-spacing="0.08em">INV</text>
+<text x="328" y="212" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">在庫引当</text>
+<text x="328" y="224" fill="#595959" font-size="9" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">reserve</text>
+<rect x="288" y="232" width="24" height="10" rx="2" fill="#111110"/>
+<text x="300" y="240" fill="#FFFFFF" font-size="8" font-weight="700" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">ORD</text>
+<rect x="344" y="232" width="24" height="10" rx="2" fill="#111110"/>
+<text x="356" y="240" fill="#FFFFFF" font-size="8" font-weight="700" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">RSV</text>
+</g>
+<g>
+<rect x="400" y="264" width="96" height="72" rx="6" fill="#FFFFFF"/>
+<rect x="400" y="264" width="96" height="72" rx="6" fill="rgba(89,89,89,0.06)" stroke="rgba(89,89,89,0.35)" stroke-width="1"/>
+<rect x="408" y="272" width="28" height="12" rx="2" fill="rgba(89,89,89,0.18)"/>
+<text x="422" y="281" fill="#595959" font-size="8" font-weight="600" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle" letter-spacing="0.08em">PGW</text>
+<text x="448" y="300" fill="#595959" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">決済承認</text>
+<text x="448" y="312" fill="#595959" font-size="9" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">authorize</text>
+<rect x="408" y="320" width="24" height="10" rx="2" fill="#111110"/>
+<text x="420" y="328" fill="#FFFFFF" font-size="8" font-weight="700" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">RSV</text>
+<rect x="464" y="320" width="24" height="10" rx="2" fill="#111110"/>
+<text x="476" y="328" fill="#FFFFFF" font-size="8" font-weight="700" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">PAY</text>
+</g>
+<g>
+<rect x="520" y="88" width="96" height="72" rx="6" fill="#FFFFFF"/>
+<rect x="520" y="88" width="96" height="72" rx="6" fill="#FFFFFF" stroke="#111110" stroke-width="2"/>
+<rect x="528" y="96" width="28" height="12" rx="2" fill="#111110"/>
+<text x="542" y="105" fill="#FFFFFF" font-size="8" font-weight="600" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle" letter-spacing="0.08em">API</text>
+<text x="568" y="124" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">注文確定</text>
+<text x="568" y="136" fill="#595959" font-size="9" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">DB + publish</text>
+<rect x="528" y="144" width="24" height="10" rx="2" fill="#111110"/>
+<text x="540" y="152" fill="#FFFFFF" font-size="8" font-weight="700" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">PAY</text>
+<rect x="584" y="144" width="24" height="10" rx="2" fill="#111110"/>
+<text x="596" y="152" fill="#FFFFFF" font-size="8" font-weight="700" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">EVT</text>
+</g>
+<g>
+<rect x="640" y="352" width="96" height="72" rx="6" fill="#FFFFFF"/>
+<rect x="640" y="352" width="96" height="72" rx="6" fill="#FFFFFF" stroke="#111110" stroke-width="1"/>
+<rect x="648" y="360" width="28" height="12" rx="2" fill="rgba(17,17,16,0.12)"/>
+<text x="662" y="369" fill="#111110" font-size="8" font-weight="600" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle" letter-spacing="0.08em">SHP</text>
+<text x="688" y="388" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">出荷手配</text>
+<text x="688" y="400" fill="#595959" font-size="9" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">subscribe</text>
+<rect x="648" y="408" width="24" height="10" rx="2" fill="#111110"/>
+<text x="660" y="416" fill="#FFFFFF" font-size="8" font-weight="700" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">EVT</text>
+</g>
+<g>
+<rect x="760" y="440" width="96" height="72" rx="6" fill="#FFFFFF"/>
+<rect x="760" y="440" width="96" height="72" rx="6" fill="#FFFFFF" stroke="#111110" stroke-width="1"/>
+<rect x="768" y="448" width="28" height="12" rx="2" fill="rgba(17,17,16,0.12)"/>
+<text x="782" y="457" fill="#111110" font-size="8" font-weight="600" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle" letter-spacing="0.08em">NTF</text>
+<text x="808" y="476" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">通知送信</text>
+<text x="808" y="488" fill="#595959" font-size="9" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">subscribe</text>
+<rect x="768" y="496" width="24" height="10" rx="2" fill="#111110"/>
+<text x="780" y="504" fill="#FFFFFF" font-size="8" font-weight="700" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">EVT</text>
+</g>
+<text x="94" y="536" fill="#595959" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">データ</text>
+<text x="94" y="556" fill="#595959" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">矢印</text>
+<text x="94" y="576" fill="#595959" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">箱</text>
+<rect x="160" y="527" width="24" height="10" rx="2" fill="#111110"/>
+<text x="172" y="535" fill="#FFFFFF" font-size="8" font-weight="700" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">ORD</text>
+<text x="190" y="536" fill="#111110" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="start">注文データ</text>
+<rect x="274" y="527" width="24" height="10" rx="2" fill="#111110"/>
+<text x="286" y="535" fill="#FFFFFF" font-size="8" font-weight="700" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">RSV</text>
+<text x="304" y="536" fill="#111110" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="start">引当結果</text>
+<rect x="376" y="527" width="24" height="10" rx="2" fill="#111110"/>
+<text x="388" y="535" fill="#FFFFFF" font-size="8" font-weight="700" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">PAY</text>
+<text x="406" y="536" fill="#111110" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="start">承認結果</text>
+<rect x="478" y="527" width="24" height="10" rx="2" fill="#111110"/>
+<text x="490" y="535" fill="#FFFFFF" font-size="8" font-weight="700" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">EVT</text>
+<text x="508" y="536" fill="#111110" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="start">イベント</text>
+<text x="588" y="536" fill="#595959" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="start">左の札は受け取るデータ、右の札は渡すデータ</text>
+<path d="M 160,552 H 192" fill="none" stroke="#595959" stroke-width="1" marker-end="url(#proc-arrow)"/>
+<text x="200" y="556" fill="#111110" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="start">同期の引き継ぎ</text>
+<path d="M 308,552 H 340" fill="none" stroke="#595959" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#proc-arrow-sm)"/>
+<text x="348" y="556" fill="#111110" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="start">メッセージキュー経由の非同期</text>
+<rect x="160" y="566" width="28" height="12" rx="3" fill="#FFFFFF" stroke="#111110" stroke-width="2"/>
+<text x="196" y="576" fill="#111110" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="start">同期と非同期の境目</text>
+<rect x="328" y="566" width="28" height="12" rx="3" fill="rgba(89,89,89,0.06)" stroke="rgba(89,89,89,0.35)" stroke-width="1"/>
+<text x="364" y="576" fill="#111110" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="start">外部サービス</text>
+</svg>
+  </div>
+  <figcaption>図3　移行後の注文確定の流れ(担当サービス別。1〜4が同期、5〜6が非同期)</figcaption>
+</figure>
+
+<h2 id="latency">応答時間の比較</h2>
+
+<p>
+非同期にすると注文APIの応答時間がどう変わるかを、負荷試験で確かめます。負荷試験とは、本番に近い量のリクエストを人工的に流し、処理の速さや失敗の割合が基準を満たすかを確かめるテストです。図4は、同時リクエスト数を100から1600まで2倍ずつ増やしたときの、注文APIの p95 応答時間です。p95 応答時間とは、全リクエストを応答の速い順に並べたとき、下から95%目のリクエストが要した時間で、遅い側の利用者が体感する待ち時間の目安になります。
+</p>
+
+<p>
+同期方式(灰色の線)は、同時リクエスト数が増えるほど急に悪化し、100件の120msから1600件の1500msまで約12倍になります。出荷や通知の処理時間が、注文APIの応答に積み上がるためです。非同期方式(赤の線)は、出荷と通知をキューへ預けて待たないので、95msから230msまでの増加にとどまります。横軸は2倍ずつの等間隔なので、線の傾きは「負荷が倍になるごとの増え方」を表します。
+</p>
+
+<figure class="mb-figure">
+  <div class="mb-figure-frame diagram-scroll" tabindex="0" role="region" aria-label="図4 同時リクエスト数別の注文API の p95 応答時間(横にスクロールできます)">
+<svg viewBox="0 0 908 500" role="img" aria-labelledby="line-title line-desc">
+<title id="line-title">負荷別の注文API p95応答時間(同期と非同期)</title>
+<desc id="line-desc">同時リクエスト数が100から1600へ増えると、同期方式のp95応答時間は120msから1500msへ悪化し、非同期方式は95msから230msにとどまる。値は仮の値。</desc>
+<line x1="96" y1="320" x2="756" y2="320" stroke="#DFDFDF" stroke-width="1"/>
+<line x1="96" y1="232" x2="756" y2="232" stroke="#DFDFDF" stroke-width="1"/>
+<line x1="96" y1="144" x2="756" y2="144" stroke="#DFDFDF" stroke-width="1"/>
+<line x1="96" y1="56" x2="756" y2="56" stroke="#DFDFDF" stroke-width="1"/>
+<line x1="96" y1="408" x2="756" y2="408" stroke="#A5A5A5" stroke-width="1"/>
+<text x="88" y="411.5" fill="#595959" font-size="10" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="end">0</text>
+<text x="88" y="323.5" fill="#595959" font-size="10" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="end">400</text>
+<text x="88" y="235.5" fill="#595959" font-size="10" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="end">800</text>
+<text x="88" y="147.5" fill="#595959" font-size="10" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="end">1200</text>
+<text x="88" y="59.5" fill="#595959" font-size="10" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="end">1600</text>
+<text x="140" y="428" fill="#595959" font-size="10" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">100</text>
+<text x="290" y="428" fill="#595959" font-size="10" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">200</text>
+<text x="440" y="428" fill="#595959" font-size="10" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">400</text>
+<text x="590" y="428" fill="#595959" font-size="10" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">800</text>
+<text x="740" y="428" fill="#595959" font-size="10" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">1600</text>
+<text x="52" y="228" transform="rotate(-90 52 228)" fill="#595959" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">注文APIの p95 応答時間(ms)</text>
+<text x="426" y="456" fill="#595959" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">同時リクエスト数(2倍ずつの等間隔)</text>
+<polyline data-series="同期方式" data-values="120,180,320,700,1500" points="140,381.6 290,368.4 440,337.6 590,254 740,78" fill="none" stroke="#595959" stroke-width="1.2" stroke-linejoin="round"/>
+<polyline data-series="非同期方式" data-values="95,105,125,160,230" points="140,387.1 290,384.9 440,380.5 590,372.8 740,357.4" fill="none" stroke="#D63A2F" stroke-width="1.8" stroke-linejoin="round"/>
+<circle cx="140" cy="387.1" r="4" fill="#D63A2F"/>
+<circle cx="290" cy="384.9" r="4" fill="#D63A2F"/>
+<circle cx="440" cy="380.5" r="4" fill="#D63A2F"/>
+<circle cx="590" cy="372.8" r="4" fill="#D63A2F"/>
+<circle cx="740" cy="357.4" r="4" fill="#D63A2F"/>
+<text x="768" y="82" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">同期方式</text>
+<text x="768" y="96" fill="#595959" font-size="10" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace">1500 ms</text>
+<text x="768" y="361.4" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">非同期方式</text>
+<text x="768" y="375.4" fill="#595959" font-size="10" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace">230 ms</text>
+</svg>
+  </div>
+  <figcaption>図4　同時リクエスト数別の注文API の p95 応答時間(縦軸は0から。値はすべて仮の値)</figcaption>
+</figure>
+
+<h2 id="queue">キューの滞留と通知の遅れ</h2>
+
+<p>
+非同期にすると、通知メールは注文の応答と切り離され、キューに溜まった順に送られます。キューに処理待ちのまま残っているメッセージの数を、滞留数と呼びます。図5は、滞留数(横軸、件)と、通知メールが送られるまでの遅延(縦軸、秒)を、22回の計測を1点ずつ表した散布図です。
+</p>
+
+<p>
+点は右上がりに並び、滞留数が多いほど遅延が長くなる傾向が読めます。破線は最小二乗法で引いた傾向線です。ただし点は線の周りにばらつくので、滞留数だけで遅延が決まるわけではありません。運用では、滞留数に上限を決めて監視し、超えたら通知サービスのコンシューマ(キューからメッセージを取り出して処理する側)を増やすなどの対応を取ります。
+</p>
+
+<figure class="mb-figure">
+  <div class="mb-figure-frame diagram-scroll" tabindex="0" role="region" aria-label="図5 キューの滞留数と通知メール送信までの遅延(横にスクロールできます)">
+<svg viewBox="0 0 908 500" role="img" aria-labelledby="scatter-title scatter-desc">
+<title id="scatter-title">キュー滞留数と通知メール遅延の関係</title>
+<desc id="scatter-desc">滞留数が増えるほど通知メールの送信までの遅延が長くなる右上がりの傾向を、ばらつきのある22点と傾向線で示した散布図。値は仮の値。</desc>
+<line x1="96" y1="320" x2="796" y2="320" stroke="#DFDFDF" stroke-width="1"/>
+<line x1="96" y1="232" x2="796" y2="232" stroke="#DFDFDF" stroke-width="1"/>
+<line x1="96" y1="144" x2="796" y2="144" stroke="#DFDFDF" stroke-width="1"/>
+<line x1="96" y1="56" x2="796" y2="56" stroke="#DFDFDF" stroke-width="1"/>
+<line x1="236" y1="56" x2="236" y2="408" stroke="#DFDFDF" stroke-width="1"/>
+<line x1="376" y1="56" x2="376" y2="408" stroke="#DFDFDF" stroke-width="1"/>
+<line x1="516" y1="56" x2="516" y2="408" stroke="#DFDFDF" stroke-width="1"/>
+<line x1="656" y1="56" x2="656" y2="408" stroke="#DFDFDF" stroke-width="1"/>
+<line x1="796" y1="56" x2="796" y2="408" stroke="#DFDFDF" stroke-width="1"/>
+<line x1="96" y1="408" x2="796" y2="408" stroke="#A5A5A5" stroke-width="1"/>
+<line x1="96" y1="56" x2="96" y2="408" stroke="#A5A5A5" stroke-width="1"/>
+<text x="88" y="411.5" fill="#595959" font-size="10" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="end">0</text>
+<text x="88" y="323.5" fill="#595959" font-size="10" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="end">15</text>
+<text x="88" y="235.5" fill="#595959" font-size="10" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="end">30</text>
+<text x="88" y="147.5" fill="#595959" font-size="10" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="end">45</text>
+<text x="88" y="59.5" fill="#595959" font-size="10" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="end">60</text>
+<text x="96" y="428" fill="#595959" font-size="10" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">0</text>
+<text x="236" y="428" fill="#595959" font-size="10" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">100</text>
+<text x="376" y="428" fill="#595959" font-size="10" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">200</text>
+<text x="516" y="428" fill="#595959" font-size="10" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">300</text>
+<text x="656" y="428" fill="#595959" font-size="10" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">400</text>
+<text x="796" y="428" fill="#595959" font-size="10" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">500</text>
+<text x="52" y="228" transform="rotate(-90 52 228)" fill="#595959" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">通知メール送信までの遅延(秒)</text>
+<text x="446" y="456" fill="#595959" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">メッセージキューの滞留数(件)</text>
+<line x1="96" y1="394.6" x2="796" y2="128.3" stroke="#767676" stroke-width="1.2" stroke-dasharray="4,3"/>
+<text x="808" y="132.3" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">傾向線</text>
+<circle cx="131" cy="378.7" r="5" fill="#FFFFFF"/>
+<circle data-x="25" data-y="5" cx="131" cy="378.7" r="5" fill="rgba(89,89,89,0.2)" stroke="#595959" stroke-width="1"/>
+<circle cx="152" cy="337.6" r="5" fill="#FFFFFF"/>
+<circle data-x="40" data-y="12" cx="152" cy="337.6" r="5" fill="rgba(89,89,89,0.2)" stroke="#595959" stroke-width="1"/>
+<circle cx="194" cy="372.8" r="5" fill="#FFFFFF"/>
+<circle data-x="70" data-y="6" cx="194" cy="372.8" r="5" fill="rgba(89,89,89,0.2)" stroke="#595959" stroke-width="1"/>
+<circle cx="229" cy="314.1" r="5" fill="#FFFFFF"/>
+<circle data-x="95" data-y="16" cx="229" cy="314.1" r="5" fill="rgba(89,89,89,0.2)" stroke="#595959" stroke-width="1"/>
+<circle cx="264" cy="308.3" r="5" fill="#FFFFFF"/>
+<circle data-x="120" data-y="17" cx="264" cy="308.3" r="5" fill="rgba(89,89,89,0.2)" stroke="#595959" stroke-width="1"/>
+<circle cx="292" cy="361.1" r="5" fill="#FFFFFF"/>
+<circle data-x="140" data-y="8" cx="292" cy="361.1" r="5" fill="rgba(89,89,89,0.2)" stroke="#595959" stroke-width="1"/>
+<circle cx="327" cy="320" r="5" fill="#FFFFFF"/>
+<circle data-x="165" data-y="15" cx="327" cy="320" r="5" fill="rgba(89,89,89,0.2)" stroke="#595959" stroke-width="1"/>
+<circle cx="355" cy="267.2" r="5" fill="#FFFFFF"/>
+<circle data-x="185" data-y="24" cx="355" cy="267.2" r="5" fill="rgba(89,89,89,0.2)" stroke="#595959" stroke-width="1"/>
+<circle cx="383" cy="331.7" r="5" fill="#FFFFFF"/>
+<circle data-x="205" data-y="13" cx="383" cy="331.7" r="5" fill="rgba(89,89,89,0.2)" stroke="#595959" stroke-width="1"/>
+<circle cx="418" cy="249.6" r="5" fill="#FFFFFF"/>
+<circle data-x="230" data-y="27" cx="418" cy="249.6" r="5" fill="rgba(89,89,89,0.2)" stroke="#595959" stroke-width="1"/>
+<circle cx="446" cy="226.1" r="5" fill="#FFFFFF"/>
+<circle data-x="250" data-y="31" cx="446" cy="226.1" r="5" fill="rgba(89,89,89,0.2)" stroke="#595959" stroke-width="1"/>
+<circle cx="481" cy="302.4" r="5" fill="#FFFFFF"/>
+<circle data-x="275" data-y="18" cx="481" cy="302.4" r="5" fill="rgba(89,89,89,0.2)" stroke="#595959" stroke-width="1"/>
+<circle cx="509" cy="249.6" r="5" fill="#FFFFFF"/>
+<circle data-x="295" data-y="27" cx="509" cy="249.6" r="5" fill="rgba(89,89,89,0.2)" stroke="#595959" stroke-width="1"/>
+<circle cx="537" cy="185.1" r="5" fill="#FFFFFF"/>
+<circle data-x="315" data-y="38" cx="537" cy="185.1" r="5" fill="rgba(89,89,89,0.2)" stroke="#595959" stroke-width="1"/>
+<circle cx="572" cy="302.4" r="5" fill="#FFFFFF"/>
+<circle data-x="340" data-y="18" cx="572" cy="302.4" r="5" fill="rgba(89,89,89,0.2)" stroke="#595959" stroke-width="1"/>
+<circle cx="600" cy="214.4" r="5" fill="#FFFFFF"/>
+<circle data-x="360" data-y="33" cx="600" cy="214.4" r="5" fill="rgba(89,89,89,0.2)" stroke="#595959" stroke-width="1"/>
+<circle cx="635" cy="237.9" r="5" fill="#FFFFFF"/>
+<circle data-x="385" data-y="29" cx="635" cy="237.9" r="5" fill="rgba(89,89,89,0.2)" stroke="#595959" stroke-width="1"/>
+<circle cx="663" cy="144" r="5" fill="#FFFFFF"/>
+<circle data-x="405" data-y="45" cx="663" cy="144" r="5" fill="rgba(89,89,89,0.2)" stroke="#595959" stroke-width="1"/>
+<circle cx="691" cy="161.6" r="5" fill="#FFFFFF"/>
+<circle data-x="425" data-y="42" cx="691" cy="161.6" r="5" fill="rgba(89,89,89,0.2)" stroke="#595959" stroke-width="1"/>
+<circle cx="726" cy="108.8" r="5" fill="#FFFFFF"/>
+<circle data-x="450" data-y="51" cx="726" cy="108.8" r="5" fill="rgba(89,89,89,0.2)" stroke="#595959" stroke-width="1"/>
+<circle cx="754" cy="173.3" r="5" fill="#FFFFFF"/>
+<circle data-x="470" data-y="40" cx="754" cy="173.3" r="5" fill="rgba(89,89,89,0.2)" stroke="#595959" stroke-width="1"/>
+<circle cx="782" cy="79.5" r="5" fill="#FFFFFF"/>
+<circle data-x="490" data-y="56" cx="782" cy="79.5" r="5" fill="rgba(89,89,89,0.2)" stroke="#595959" stroke-width="1"/>
+</svg>
+  </div>
+  <figcaption>図5　キューの滞留数と通知メール送信までの遅延(22回の計測。値はすべて仮の値)</figcaption>
+</figure>
+
+<h2 id="priority">最初に移す処理</h2>
+
+<p>
+すべての処理を一度に非同期へ移すと、手間も失敗したときの影響も大きくなります。そこで、移行の候補を「移行の手間」と「期待できる効果」の2軸に置き、先に移すものを決めます。図6は8つの処理を配置した四象限図で、右ほど手間が大きく、上ほど効果が大きいことを表します。
+</p>
+
+<p>
+左上の「最初に移す」領域に入るのは、通知メール、ポイント付与、出荷指示です。どれも決済が終わった後の処理で、少し遅れても注文の結果は変わらないため、キューに任せても利用者への影響が小さく済みます。右上の在庫更新は効果が大きい一方で、同じ在庫を二重に引き当てないための整合性の確保が要り、手間が大きくなります。そのため移行後も、注文APIが在庫サービスと決済ゲートウェイだけを同期で呼ぶ構成にします。
+</p>
+
+<figure class="mb-figure">
+  <div class="mb-figure-frame diagram-scroll" tabindex="0" role="region" aria-label="図6 非同期へ移す処理の優先度(横にスクロールできます)">
+<svg viewBox="0 0 908 504" role="img" aria-labelledby="quad-title quad-desc">
+<title id="quad-title">非同期へ移す処理の優先度マップ</title>
+<desc id="quad-desc">8つの処理を移行の手間と期待できる効果の2軸に置き、手間が小さく効果の大きい通知メール・ポイント付与・出荷指示を最初に移す候補として示した四象限図。配置は仮の値。</desc>
+<defs>
+<marker id="quad-arrow-ink" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#111110"/></marker>
+</defs>
+<rect x="72" y="76" width="336" height="180" rx="8" fill="rgba(17,17,16,0.05)" stroke="#111110" stroke-width="2"/>
+<rect x="84" y="88" width="80" height="20" rx="2" fill="#111110"/>
+<text x="124" y="102.5" fill="#FFFFFF" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">最初に移す</text>
+<line x1="64" y1="264" x2="780" y2="264" stroke="#111110" stroke-width="1" marker-end="url(#quad-arrow-ink)"/>
+<line x1="416" y1="464" x2="416" y2="64" stroke="#111110" stroke-width="1" marker-end="url(#quad-arrow-ink)"/>
+<text x="416" y="52" fill="#111110" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">期待できる効果</text>
+<text x="792" y="264" fill="#111110" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="start" dominant-baseline="middle">移行の手間</text>
+<text x="64" y="284" font-size="12" font-weight="500" fill="#595959" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="start">低</text>
+<text x="780" y="284" font-size="12" font-weight="500" fill="#595959" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="end">高</text>
+<text x="428" y="76" font-size="12" font-weight="500" fill="#595959" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="start">高</text>
+<text x="428" y="462" font-size="12" font-weight="500" fill="#595959" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="start">低</text>
+<circle cx="198" cy="218" r="4" fill="#111110" data-name="通知メール" data-effort="1.8" data-effect="6.2"/>
+<text x="210" y="222" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">通知メール</text>
+<circle cx="294" cy="241" r="4" fill="#111110" data-name="ポイント付与" data-effort="3.2" data-effect="5.6"/>
+<text x="306" y="245" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">ポイント付与</text>
+<circle cx="334" cy="164" r="4" fill="#111110" data-name="出荷指示" data-effort="3.8" data-effect="7.6"/>
+<text x="346" y="168" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">出荷指示</text>
+<circle cx="484" cy="126" r="4" fill="#FFFFFF" stroke="#595959" stroke-width="1.2" data-name="注文確定" data-effort="6.0" data-effect="8.6"/>
+<text x="496" y="130" fill="#595959" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">注文確定</text>
+<circle cx="634" cy="149" r="4" fill="#FFFFFF" stroke="#595959" stroke-width="1.2" data-name="在庫更新" data-effort="8.2" data-effect="8.0"/>
+<text x="646" y="153" fill="#595959" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">在庫更新</text>
+<circle cx="593" cy="229" r="4" fill="#FFFFFF" stroke="#595959" stroke-width="1.2" data-name="請求" data-effort="7.6" data-effect="5.9"/>
+<text x="605" y="233" fill="#595959" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">請求</text>
+<circle cx="212" cy="364" r="4" fill="#FFFFFF" stroke="#595959" stroke-width="1.2" data-name="検索インデックス更新" data-effort="2.0" data-effect="2.4"/>
+<text x="224" y="368" fill="#595959" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">検索インデックス更新</text>
+<circle cx="470" cy="333" r="4" fill="#FFFFFF" stroke="#595959" stroke-width="1.2" data-name="売上レポート" data-effort="5.8" data-effect="3.2"/>
+<text x="482" y="337" fill="#595959" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">売上レポート</text>
+</svg>
+  </div>
+  <figcaption>図6　非同期へ移す処理の優先度(右ほど手間が大きく、上ほど効果が大きい。配置は説明用の仮の値)</figcaption>
+</figure>
+
+<h2 id="roles">役割分担と引き継ぎ</h2>
+
+<p>
+移行は開発だけでは終わりません。開発、QA、プロダクト、運用の4つの役割が、工程を順に引き継ぎます。図7では役割ごとに横長の帯(レーン)を置き、各工程を、担当する役割の帯の中に描いています。矢印が帯をまたぐところが引き継ぎで、そこで責任が次の役割へ移ります。
+</p>
+
+<p>
+開発が実装を終えると、QAが負荷試験を行います。基準に届かなければ、太い破線のとおり実装へ戻します。合格するとプロダクトが段階リリースへ進むかを判断し、運用がカナリア切替を行います。カナリア切替とは、利用者の一部の注文だけを新しい経路へ流して様子を見る方式です。問題がなければ、最後に全面切替へ進みます。
+</p>
+
+<figure class="mb-figure">
+  <div class="mb-figure-frame diagram-scroll" tabindex="0" role="region" aria-label="図7 移行を進めるチームの役割分担と引き継ぎ(横にスクロールできます)">
+<svg viewBox="0 0 908 524" role="img" aria-labelledby="lane-title lane-desc">
+<title id="lane-title">移行を進めるチームの役割分担</title>
+<desc id="lane-desc">開発・QA・プロダクト・運用の4つの役割が、設計レビュー、実装、負荷試験、段階リリースの判断、カナリア切替、全面切替の順に工程を引き継ぎ、負荷試験で基準に届かないときは実装へ戻る様子。</desc>
+<defs>
+<marker id="lane-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#595959"/></marker>
+<marker id="lane-arrow-ink" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#111110"/></marker>
+</defs>
+<rect x="40" y="40" width="828" height="384" rx="8" fill="none" stroke="#A5A5A5" stroke-width="1"/>
+<line x1="40" y1="136" x2="868" y2="136" stroke="#DFDFDF" stroke-width="1"/>
+<line x1="40" y1="232" x2="868" y2="232" stroke="#DFDFDF" stroke-width="1"/>
+<line x1="40" y1="328" x2="868" y2="328" stroke="#DFDFDF" stroke-width="1"/>
+<line x1="120" y1="40" x2="120" y2="424" stroke="#DFDFDF" stroke-width="1"/>
+<g font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" font-size="12" font-weight="500" fill="#595959" text-anchor="middle">
+<text x="80" y="92">開発</text>
+<text x="80" y="188">QA</text>
+<text x="80" y="284">プロダクト</text>
+<text x="80" y="380">運用</text>
+</g>
+<line x1="232" y1="88" x2="260" y2="88" stroke="#595959" stroke-width="1.2" marker-end="url(#lane-arrow)"/>
+<path d="M356,88 H424 Q432,88 432,96 V160" fill="none" stroke="#595959" stroke-width="1.2" marker-end="url(#lane-arrow)"/>
+<path d="M480,184 H548 Q556,184 556,192 V256" fill="none" stroke="#595959" stroke-width="1.2" marker-end="url(#lane-arrow)"/>
+<path d="M604,280 H672 Q680,280 680,288 V352" fill="none" stroke="#595959" stroke-width="1.2" marker-end="url(#lane-arrow)"/>
+<line x1="728" y1="376" x2="756" y2="376" stroke="#595959" stroke-width="1.2" marker-end="url(#lane-arrow)"/>
+<path d="M384,184 H316 Q308,184 308,176 V112" fill="none" stroke="#111110" stroke-width="2" stroke-dasharray="5,4" marker-end="url(#lane-arrow-ink)"/>
+<g>
+<rect x="440" y="104" width="80" height="16" rx="2" fill="#FFFFFF"/>
+<text x="480" y="116" fill="#595959" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">リリース候補</text>
+<rect x="564" y="200" width="56" height="16" rx="2" fill="#FFFFFF"/>
+<text x="592" y="212" fill="#595959" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">試験結果</text>
+<rect x="688" y="296" width="68" height="16" rx="2" fill="#FFFFFF"/>
+<text x="722" y="308" fill="#595959" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">切替の承認</text>
+<rect x="244" y="144" width="56" height="16" rx="2" fill="#FFFFFF"/>
+<text x="272" y="156" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">基準未達</text>
+</g>
+<rect x="136" y="64" width="96" height="48" rx="6" fill="#FFFFFF"/>
+<rect x="136" y="64" width="96" height="48" rx="6" fill="#FFFFFF" stroke="#111110" stroke-width="1"/>
+<text x="184" y="92" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">設計レビュー</text>
+<rect x="260" y="64" width="96" height="48" rx="6" fill="#FFFFFF"/>
+<rect x="260" y="64" width="96" height="48" rx="6" fill="#FFFFFF" stroke="#111110" stroke-width="1"/>
+<text x="308" y="92" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">実装</text>
+<rect x="384" y="160" width="96" height="48" rx="6" fill="#FFFFFF"/>
+<rect x="384" y="160" width="96" height="48" rx="6" fill="#FFFFFF" stroke="#111110" stroke-width="1"/>
+<text x="432" y="188" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">負荷試験</text>
+<rect x="508" y="256" width="96" height="48" rx="6" fill="#FFFFFF"/>
+<rect x="508" y="256" width="96" height="48" rx="6" fill="#FFFFFF" stroke="#111110" stroke-width="1"/>
+<text x="556" y="277" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">段階リリース</text>
+<text x="556" y="291" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">判断</text>
+<rect x="632" y="352" width="96" height="48" rx="6" fill="#FFFFFF"/>
+<rect x="632" y="352" width="96" height="48" rx="6" fill="#FFFFFF" stroke="#111110" stroke-width="1"/>
+<text x="680" y="380" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">カナリア切替</text>
+<rect x="756" y="352" width="96" height="48" rx="6" fill="#FFFFFF"/>
+<rect x="756" y="352" width="96" height="48" rx="6" fill="#FFFFFF" stroke="#111110" stroke-width="1"/>
+<text x="804" y="380" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">全面切替</text>
+<line x1="40" y1="436" x2="868" y2="436" stroke="rgba(17,17,16,0.10)" stroke-width="0.8"/>
+<path d="M40,460 H72" fill="none" stroke="#595959" stroke-width="1.2" marker-end="url(#lane-arrow)"/>
+<text x="84" y="464" fill="#595959" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">引き継ぎ(次の工程へ進む)</text>
+<path d="M260,460 H300" fill="none" stroke="#111110" stroke-width="2" stroke-dasharray="5,4" marker-end="url(#lane-arrow-ink)"/>
+<text x="312" y="464" fill="#595959" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">差し戻し(前の工程へ戻る)</text>
+</svg>
+  </div>
+  <figcaption>図7　移行を進めるチームの役割分担と引き継ぎ(負荷試験で基準に届かないと実装へ戻る)</figcaption>
+</figure>
+
+<h2 id="milestones">マイルストーン</h2>
+
+<p>
+時間の流れで見ると、移行は2026年11月2日の設計開始から、2027年3月12日の全面切替完了まで、約19週間です。図8の横軸は日数に比例しているので、点と点の間隔が、そのまま期間の長さを表します。
+</p>
+
+<p>
+実装完了(12月25日)から負荷試験の開始(1月4日)までの10日間は、年末年始の休みを想定した例です。負荷試験は1月4日から22日までで、その合格が終わりの日付になります。合格は、本番の注文を新しい経路に触れさせてよいかを決める関門なので、太い輪で示しています。合格の3日後にカナリア5%が始まり、2週間後に50%へ広げます。5%と50%は、新しい経路へ流す注文の割合です。
+</p>
+
+<figure class="mb-figure">
+  <div class="mb-figure-frame diagram-scroll" tabindex="0" role="region" aria-label="図8 移行のマイルストーン(横にスクロールできます)">
+<svg viewBox="0 0 908 332" role="img" aria-labelledby="tl-title tl-desc">
+<title id="tl-title">移行のマイルストーン(2026-11〜2027-03)</title>
+<desc id="tl-desc">2026年11月2日の設計開始から2027年3月12日の全面切替完了まで、7つのマイルストーンを日数に比例した時間軸に並べた年表。負荷試験の合格が、リリース可否を決める関門として強調されている。</desc>
+<line x1="62.15" y1="140" x2="852" y2="140" stroke="#111110" stroke-width="1"/>
+<line x1="62.15" y1="136" x2="62.15" y2="144" stroke="#595959" stroke-width="1"/>
+<line x1="237.65" y1="136" x2="237.65" y2="144" stroke="#595959" stroke-width="1"/>
+<line x1="419" y1="136" x2="419" y2="144" stroke="#595959" stroke-width="1"/>
+<line x1="600.35" y1="136" x2="600.35" y2="144" stroke="#595959" stroke-width="1"/>
+<line x1="764.15" y1="136" x2="764.15" y2="144" stroke="#595959" stroke-width="1"/>
+<line x1="852" y1="136" x2="852" y2="144" stroke="#595959" stroke-width="1"/>
+<g font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" font-size="9" fill="#595959" text-anchor="middle">
+<text x="149.9" y="164">2026-11</text>
+<text x="328.32" y="164">2026-12</text>
+<text x="509.68" y="164">2027-01</text>
+<text x="682.25" y="164">2027-02</text>
+<text x="808.08" y="164">2027-03</text>
+</g>
+<line x1="68" y1="136" x2="68" y2="82" stroke="#A5A5A5" stroke-width="1"/>
+<line x1="214.25" y1="144" x2="214.25" y2="194" stroke="#A5A5A5" stroke-width="1"/>
+<line x1="378.05" y1="136" x2="378.05" y2="82" stroke="#A5A5A5" stroke-width="1"/>
+<line x1="541.85" y1="147" x2="541.85" y2="194" stroke="#A5A5A5" stroke-width="1"/>
+<line x1="559.4" y1="136" x2="559.4" y2="82" stroke="#A5A5A5" stroke-width="1"/>
+<line x1="641.3" y1="144" x2="641.3" y2="194" stroke="#A5A5A5" stroke-width="1"/>
+<line x1="828.5" y1="136" x2="828.5" y2="82" stroke="#A5A5A5" stroke-width="1"/>
+<circle cx="68" cy="140" r="4" fill="#111110"/>
+<circle cx="214.25" cy="140" r="4" fill="#111110"/>
+<circle cx="378.05" cy="140" r="4" fill="#111110"/>
+<circle cx="541.85" cy="140" r="6" fill="#FFFFFF" stroke="#111110" stroke-width="2"/>
+<circle cx="559.4" cy="140" r="4" fill="#111110"/>
+<circle cx="641.3" cy="140" r="4" fill="#111110"/>
+<circle cx="828.5" cy="140" r="4" fill="#111110"/>
+<text x="68" y="60" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">設計開始</text>
+<text x="68" y="74" fill="#595959" font-size="9" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">2026-11-02</text>
+<text x="214.25" y="210" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">イベント仕様の合意</text>
+<text x="214.25" y="224" fill="#595959" font-size="9" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">2026-11-27</text>
+<text x="378.05" y="60" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">実装完了</text>
+<text x="378.05" y="74" fill="#595959" font-size="9" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">2026-12-25</text>
+<text x="541.85" y="210" fill="#111110" font-size="12" font-weight="700" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">負荷試験の合格</text>
+<text x="541.85" y="224" fill="#595959" font-size="9" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">2027-01-22</text>
+<text x="559.4" y="60" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">カナリア5%開始</text>
+<text x="559.4" y="74" fill="#595959" font-size="9" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">2027-01-25</text>
+<text x="641.3" y="210" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">カナリア50%開始</text>
+<text x="641.3" y="224" fill="#595959" font-size="9" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">2027-02-08</text>
+<text x="828.5" y="60" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">全面切替完了</text>
+<text x="828.5" y="74" fill="#595959" font-size="9" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">2027-03-12</text>
+<line x1="40" y1="240" x2="868" y2="240" stroke="rgba(17,17,16,0.10)" stroke-width="0.8"/>
+<circle cx="44" cy="264" r="4" fill="#111110"/>
+<text x="56" y="268" fill="#595959" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">マイルストーン(その日に達する節目)</text>
+<circle cx="300" cy="264" r="6" fill="#FFFFFF" stroke="#111110" stroke-width="2"/>
+<text x="314" y="268" fill="#595959" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">関門(通らないと次へ進めない)</text>
+</svg>
+  </div>
+  <figcaption>図8　移行のマイルストーン(日付は説明用の例。横軸は日数に比例)</figcaption>
+</figure>
+
+<h2 id="schedule">作業の期間</h2>
+
+<p>
+ガントチャートは、作業(タスク)を期間の長さの棒にして、日付の軸へ並べた図です。図9の左端の列が5つのフェーズ(設計、実装、負荷試験、段階リリース、全面切替)、その右がフェーズに含まれる作業で、棒の左端が開始日、右端が終了日です。縦の細い線は月の区切りで、上の小さな目盛りは週の初め(月曜)を表します。
+</p>
+
+<p>
+同じフェーズの中で棒が重なっているのは、作業を並行して進めるという意味です。設計では構成設計の終わり(11月13日)より前にイベント仕様の合意が始まり(11月9日)、実装では注文APIのキュー発行(注文確定のイベントをキューへ送る処理)の途中から出荷サービスの購読に着手します。フェーズの境目では棒が重ならず、前のフェーズが終わってから次が始まります。太い輪郭の棒(負荷試験)は、合格しないと次へ進めない関門です。日付は図8と同じです。
+</p>
+
+<figure class="mb-figure">
+  <div class="mb-figure-frame diagram-scroll" tabindex="0" role="region" aria-label="図9 移行の作業期間(横にスクロールできます)">
+<svg viewBox="0 0 908 524" role="img" aria-labelledby="gantt-title gantt-desc">
+<title id="gantt-title">移行の作業期間(2026-11〜2027-03)</title>
+<desc id="gantt-desc">設計、実装、負荷試験、段階リリース、全面切替の5つのフェーズにある8つの作業を、2026年11月2日から2027年3月12日までの日付の軸に棒で並べたガントチャート。負荷試験の棒が関門として強調されている。</desc>
+<rect x="40" y="72" width="828" height="80" rx="8" fill="rgba(17,17,16,0.02)" stroke="rgba(17,17,16,0.10)" stroke-width="0.8"/>
+<rect x="40" y="160" width="828" height="80" rx="8" fill="rgba(17,17,16,0.02)" stroke="rgba(17,17,16,0.10)" stroke-width="0.8"/>
+<rect x="40" y="248" width="828" height="40" rx="8" fill="rgba(17,17,16,0.02)" stroke="rgba(17,17,16,0.10)" stroke-width="0.8"/>
+<rect x="40" y="296" width="828" height="80" rx="8" fill="rgba(17,17,16,0.02)" stroke="rgba(17,17,16,0.10)" stroke-width="0.8"/>
+<rect x="40" y="384" width="828" height="40" rx="8" fill="rgba(17,17,16,0.02)" stroke="rgba(17,17,16,0.10)" stroke-width="0.8"/>
+<line x1="288" y1="64" x2="856" y2="64" stroke="#A5A5A5" stroke-width="0.8"/>
+<line x1="288" y1="60" x2="288" y2="64" stroke="#A5A5A5" stroke-width="0.8"/>
+<line x1="317.75" y1="60" x2="317.75" y2="64" stroke="#A5A5A5" stroke-width="0.8"/>
+<line x1="347.5" y1="60" x2="347.5" y2="64" stroke="#A5A5A5" stroke-width="0.8"/>
+<line x1="377.25" y1="60" x2="377.25" y2="64" stroke="#A5A5A5" stroke-width="0.8"/>
+<line x1="407" y1="60" x2="407" y2="64" stroke="#A5A5A5" stroke-width="0.8"/>
+<line x1="436.75" y1="60" x2="436.75" y2="64" stroke="#A5A5A5" stroke-width="0.8"/>
+<line x1="466.5" y1="60" x2="466.5" y2="64" stroke="#A5A5A5" stroke-width="0.8"/>
+<line x1="496.25" y1="60" x2="496.25" y2="64" stroke="#A5A5A5" stroke-width="0.8"/>
+<line x1="526" y1="60" x2="526" y2="64" stroke="#A5A5A5" stroke-width="0.8"/>
+<line x1="555.75" y1="60" x2="555.75" y2="64" stroke="#A5A5A5" stroke-width="0.8"/>
+<line x1="585.5" y1="60" x2="585.5" y2="64" stroke="#A5A5A5" stroke-width="0.8"/>
+<line x1="615.25" y1="60" x2="615.25" y2="64" stroke="#A5A5A5" stroke-width="0.8"/>
+<line x1="645" y1="60" x2="645" y2="64" stroke="#A5A5A5" stroke-width="0.8"/>
+<line x1="674.75" y1="60" x2="674.75" y2="64" stroke="#A5A5A5" stroke-width="0.8"/>
+<line x1="704.5" y1="60" x2="704.5" y2="64" stroke="#A5A5A5" stroke-width="0.8"/>
+<line x1="734.25" y1="60" x2="734.25" y2="64" stroke="#A5A5A5" stroke-width="0.8"/>
+<line x1="764" y1="60" x2="764" y2="64" stroke="#A5A5A5" stroke-width="0.8"/>
+<line x1="793.75" y1="60" x2="793.75" y2="64" stroke="#A5A5A5" stroke-width="0.8"/>
+<line x1="823.5" y1="60" x2="823.5" y2="64" stroke="#A5A5A5" stroke-width="0.8"/>
+<line x1="853.25" y1="60" x2="853.25" y2="64" stroke="#A5A5A5" stroke-width="0.8"/>
+<line x1="411.25" y1="40" x2="411.25" y2="424" stroke="rgba(17,17,16,0.10)" stroke-width="0.8"/>
+<line x1="543" y1="40" x2="543" y2="424" stroke="rgba(17,17,16,0.10)" stroke-width="0.8"/>
+<line x1="674.75" y1="40" x2="674.75" y2="424" stroke="rgba(17,17,16,0.10)" stroke-width="0.8"/>
+<line x1="793.75" y1="40" x2="793.75" y2="424" stroke="rgba(17,17,16,0.10)" stroke-width="0.8"/>
+<g font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" font-size="9" fill="#595959">
+<text x="292" y="52">2026-11</text>
+<text x="415.25" y="52">2026-12</text>
+<text x="547" y="52">2027-01</text>
+<text x="678.75" y="52">2027-02</text>
+<text x="797.75" y="52">2027-03</text>
+</g>
+<text x="52" y="96" fill="#595959" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">設計</text>
+<rect x="288" y="80" width="51" height="24" rx="4" fill="#FAFAFA"/>
+<rect x="288" y="80" width="51" height="24" rx="4" fill="rgba(89,89,89,0.15)" stroke="#595959" stroke-width="1"/>
+<text x="140" y="96" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">非同期の構成設計</text>
+<rect x="317.75" y="120" width="80.75" height="24" rx="4" fill="#FAFAFA"/>
+<rect x="317.75" y="120" width="80.75" height="24" rx="4" fill="rgba(89,89,89,0.15)" stroke="#595959" stroke-width="1"/>
+<text x="140" y="136" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">イベント仕様の合意</text>
+<text x="52" y="184" fill="#595959" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">実装</text>
+<rect x="407" y="168" width="80.75" height="24" rx="4" fill="#FAFAFA"/>
+<rect x="407" y="168" width="80.75" height="24" rx="4" fill="rgba(89,89,89,0.15)" stroke="#595959" stroke-width="1"/>
+<text x="140" y="184" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">注文APIのキュー発行</text>
+<rect x="436.75" y="208" width="80.75" height="24" rx="4" fill="#FAFAFA"/>
+<rect x="436.75" y="208" width="80.75" height="24" rx="4" fill="rgba(89,89,89,0.15)" stroke="#595959" stroke-width="1"/>
+<text x="140" y="224" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">出荷サービスの購読</text>
+<text x="52" y="272" fill="#595959" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">負荷試験</text>
+<rect x="555.75" y="256" width="80.75" height="24" rx="4" fill="#FAFAFA"/>
+<rect x="555.75" y="256" width="80.75" height="24" rx="4" fill="rgba(17,17,16,0.18)" stroke="#111110" stroke-width="2"/>
+<text x="140" y="272" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">負荷試験</text>
+<text x="52" y="320" fill="#595959" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">段階リリース</text>
+<rect x="645" y="304" width="51" height="24" rx="4" fill="#FAFAFA"/>
+<rect x="645" y="304" width="51" height="24" rx="4" fill="rgba(89,89,89,0.15)" stroke="#595959" stroke-width="1"/>
+<text x="140" y="320" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">カナリア5%</text>
+<rect x="704.5" y="344" width="80.75" height="24" rx="4" fill="#FAFAFA"/>
+<rect x="704.5" y="344" width="80.75" height="24" rx="4" fill="rgba(89,89,89,0.15)" stroke="#595959" stroke-width="1"/>
+<text x="140" y="360" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">カナリア50%</text>
+<text x="52" y="408" fill="#595959" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">全面切替</text>
+<rect x="793.75" y="392" width="51" height="24" rx="4" fill="#FAFAFA"/>
+<rect x="793.75" y="392" width="51" height="24" rx="4" fill="rgba(89,89,89,0.15)" stroke="#595959" stroke-width="1"/>
+<text x="140" y="408" fill="#111110" font-size="12" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">全面切替と旧経路の撤去</text>
+<line x1="40" y1="436" x2="868" y2="436" stroke="rgba(17,17,16,0.10)" stroke-width="0.8"/>
+<rect x="40" y="450" width="24" height="12" rx="4" fill="rgba(89,89,89,0.15)" stroke="#595959" stroke-width="1"/>
+<text x="72" y="460" fill="#595959" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">作業の期間</text>
+<rect x="184" y="450" width="24" height="12" rx="4" fill="rgba(17,17,16,0.18)" stroke="#111110" stroke-width="2"/>
+<text x="216" y="460" fill="#595959" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">関門(通らないと次へ進めない)</text>
+<line x1="468" y1="452" x2="468" y2="462" stroke="#A5A5A5" stroke-width="0.8"/>
+<text x="476" y="460" fill="#595959" font-size="12" font-weight="500" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">上の目盛り: 週の初め(月曜)</text>
+</svg>
+  </div>
+  <figcaption>図9　移行の作業期間(日付は説明用の例。図8と同じ日付)</figcaption>
+</figure>
+
+<h2 id="limits">補足と限界</h2>
+
+<p>
+この文書は、移行の骨格をつかむために単純化しています。移行後に同期のまま残る処理と、非同期へ移る処理は次のとおりです。
+</p>
+
+<table>
+  <tr><th class="mb-rowlabel">処理</th><th>移行後</th></tr>
+  <tr><td class="mb-rowlabel">在庫の引き当て</td><td>同期のまま</td></tr>
+  <tr><td class="mb-rowlabel">決済の承認</td><td>同期のまま</td></tr>
+  <tr><td class="mb-rowlabel">注文DBへの保存</td><td>同期のまま</td></tr>
+  <tr><td class="mb-rowlabel">出荷の手配</td><td>非同期(キューを購読)</td></tr>
+  <tr><td class="mb-rowlabel">通知メールの送信</td><td>非同期(キューを購読)</td></tr>
+</table>
+
+<ul>
+  <li>図4・図5・図6の数値と配置、図8・図9の日付は、すべて説明用の仮の値です。実際の値は、自分たちの計測と計画で決めてください</li>
+  <li>同じイベントが2回届いたときに、結果が1回分と同じになるようにする工夫(冪等性)や、イベントの配信に失敗したときの再送は、この文書では扱っていません</li>
+  <li>図1は注文APIからWebアプリへの応答の矢印を、図2は在庫サービス・注文DB・通知サービスを省いています。図は、読み取りやすさのために数を絞っています</li>
+</ul>
+
+</main><!-- /.mb-main -->
+
+<aside class="mb-glossary" aria-labelledby="glossary-title">
+  <h2 id="glossary-title">用語リスト</h2>
+  <dl>
+    <dt>同期呼び出し</dt>
+    <dd>相手の処理が終わるまで待ってから、次へ進む呼び方。</dd>
+    <dt>非同期処理</dt>
+    <dd>結果を待たずに依頼だけを出し、相手が自分のペースで処理する方式。</dd>
+    <dt>メッセージキュー</dt>
+    <dd>受け取った知らせを一時的に預かり、受け取りたいサービスへ順に配る仕組み。</dd>
+    <dt>イベント</dt>
+    <dd>「注文が確定した」のような、起きたことを知らせるメッセージ。</dd>
+    <dt>購読</dt>
+    <dd>キューに届くイベントを受け取る登録をすること。</dd>
+    <dt>p95 応答時間</dt>
+    <dd>応答の速い順に並べたとき、下から95%目のリクエストが要した時間。遅い側の目安。</dd>
+    <dt>負荷試験</dt>
+    <dd>本番に近い量のリクエストを人工的に流し、処理の速さや失敗の割合を確かめるテスト。</dd>
+    <dt>カナリア切替</dt>
+    <dd>利用者の一部の注文だけを新しい経路へ流して、様子を見る方式。</dd>
+    <dt>滞留数</dt>
+    <dd>キューに処理待ちのまま残っているメッセージの数。</dd>
+  </dl>
+</aside>
+
+</div><!-- /.mb-wrap -->
+
+<footer class="mb-footer">backend onboarding / async order confirmation</footer>
+
+</div>
+</body>
+</html>

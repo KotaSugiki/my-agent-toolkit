@@ -11,7 +11,7 @@
 - **Lines:** `<polyline>` with `fill="none"`. Focal series `stroke-width="1.8"`, others `"1.2"`.
 - **Vertex dots:** only on the focal series (`r=4`, filled). Other series: line only.
 - **Area fill (optional):** `<polygon>` closing back to `y=420` (x-axis baseline) at 0.08 opacity. Use for the focal series only when the area meaning is important.
-- **Multi-series:** up to 5 series. Focal = `accent`. Others = `series-1`, `series-2`, `series-3`, `series-4` from style-guide.md. Apply series palette in order — don't skip.
+- **Multi-series:** up to 4 series (`style-guide.md`). Focal = `accent`. Others = `series-1`, `series-2`, `series-3`, `series-4` from style-guide.md. Apply series palette in order — don't skip.
 - **Legend:** horizontal strip at the bottom. Swatch = 16×8px rect with the series fill/stroke. One entry per series.
 
 ### Polyline pattern
@@ -30,7 +30,7 @@
 
 ## Anti-patterns
 
-- More than 5 series (visual mush — reduce or split).
+- More than 4 series (visual mush — reduce or split).
 - Lines that don't start at a shared zero baseline unless explicitly annotated.
 - Smoothed/spline curves when the underlying data is sampled — polyline is honest.
 - Dots on every series when there are 4+ series (only focal gets dots).
@@ -69,9 +69,8 @@ Not for: three or more states (that is the **line chart** above, or a bump chart
 - **The ramp runs 0.80 → 0.62**, ordered by the left-hand value. The hard floor is **0.53** — that is where an `ink` stroke crosses 3:1 against light paper (0.53 measures 3.03:1, 0.52 measures 2.95:1), and every line in this figure is data, not decoration. The shipped ramp bottoms out at 0.62 (3.84:1) rather than hugging the floor, because a ramp whose lightest member is only just legible has no room left to add a series.
 - **Note what the ramp does not buy you.** It separates the ends of the range, not adjacent members — 0.80 and 0.74 are not distinguishable at 1.2px, as the shipped example shows. It is there to help trace one line through a crossing. It must never be the only way to tell two series apart; that is the labels' job.
 - **The accent marks the editorially focal series, not the best or the biggest.** In the shipped example it marks the one service that got *worse*.
-- **Focus is carried by stroke weight, not tone** — 2.4px focal against 1.2px. Check the token you actually ship: `accent` measures **2.86:1 on light paper** and 5.21:1 on dark, so on light paper the focal line has *less* contrast than the ink ramp it is meant to dominate, and weight is the only cue that survives both skins and greyscale.
-- **Be honest about what that leaves.** 2.86:1 is below WCAG 1.4.11's 3:1 floor for a graphical object, and a heavier stroke does not raise a contrast ratio — it only makes the mark easier to find. The focal line clears the bar on redundancy rather than on contrast: its position and its two endpoint labels (`ink` at 11.8:1, `muted` at 6.1:1) carry the data, and its accent adds only *which series is focal*, which the legend states in words and the stroke weight repeats. Nothing here rests on the accent alone. This is a property of the skin's accent token on light paper, not of this variant — the focal bar, the focal line and the focal scatter dot inherit it too, so fixing it properly means changing `accent` in style-guide.md.
-- **Labels stay `ink` (names) and `muted` (values) on every series, including the focal one.** Accent text at 9–11px misses AA on light paper at that same 2.86:1. A focal value label in accent is the most common way to make a slopegraph fail contrast while looking deliberate.
+- **Focus is carried by stroke weight, not tone** — 2.4px focal against 1.2px. `accent` measures about 4.7:1 on white paper, which clears 3:1, but weight is the cue that survives greyscale and print. The endpoint labels (`ink` and `muted`) carry the data; the accent only says which series is focal.
+- **Labels stay `ink` (names) and `muted` (values) on every series, including the focal one.** Accent text at 9–11px only just clears AA on white (4.7:1), so keep it off labels. A focal value label in accent is the most common way to make a slopegraph fail contrast while looking deliberate.
 - **Legend wording must be skin-neutral: "strongest tone", never "darkest".** The ramp is ink-at-opacity, so the top of it is the darkest line on light paper and the *lightest* on dark. A legend that says "darker is higher" ships false in one of the two variants — and it renders perfectly in both, so only reading the dark file catches it.
 
 #### Honest-data rule
@@ -93,8 +92,8 @@ Not for: three or more states (that is the **line chart** above, or a bump chart
 
 ```svg
 <!-- State captions: data-axis names the axis, data-state binds the text -->
-<text data-axis="from" data-state="BEFORE" x="320" y="440" fill="#595959" font-size="9" font-family="'Ubuntu Mono', monospace" letter-spacing="0.14em" text-anchor="middle">BEFORE</text>
-<text data-axis="to" data-state="AFTER" x="680" y="440" fill="#595959" font-size="9" font-family="'Ubuntu Mono', monospace" letter-spacing="0.14em" text-anchor="middle">AFTER</text>
+<text data-axis="from" data-state="BEFORE" x="320" y="440" fill="#595959" font-size="9" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" letter-spacing="0.14em" text-anchor="middle">BEFORE</text>
+<text data-axis="to" data-state="AFTER" x="680" y="440" fill="#595959" font-size="9" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" letter-spacing="0.14em" text-anchor="middle">AFTER</text>
 
 <!-- A series: the line declares its two values, and each of its four labels
      declares which series and which end it belongs to -->
@@ -103,8 +102,8 @@ Not for: three or more states (that is the **line chart** above, or a bump chart
 <circle cx="320" cy="303.5" r="4" fill="#D63A2F"/>
 <circle cx="680" cy="140.5" r="4" fill="#D63A2F"/>
 <text data-series="Recommender" data-end="from" data-role="name" x="272" y="307" fill="#111110" font-size="11" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="end">Recommender</text>
-<text data-series="Recommender" data-end="from" x="304" y="307" fill="#595959" font-size="9" font-family="'Ubuntu Mono', monospace" text-anchor="end">238</text>
-<text data-series="Recommender" data-end="to" x="696" y="144" fill="#595959" font-size="9" font-family="'Ubuntu Mono', monospace">431</text>
+<text data-series="Recommender" data-end="from" x="304" y="307" fill="#595959" font-size="9" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="end">238</text>
+<text data-series="Recommender" data-end="to" x="696" y="144" fill="#595959" font-size="9" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace">431</text>
 <text data-series="Recommender" data-end="to" data-role="name" x="728" y="144" fill="#111110" font-size="11" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">Recommender</text>
 ```
 
@@ -182,8 +181,8 @@ The binding contract is the slopegraph's, applied to areas: the outline declares
 <line data-ridge="checkout-api" data-role="baseline" x1="320" y1="320" x2="680" y2="320" stroke="rgba(17,17,16,0.25)" stroke-width="1"/>
 <path data-ridge="checkout-api" data-baseline="320" data-bins="0,1,6,17,21,14,8,6,7,9,7,4,0" d="M320,320 L350,317.6 L380,305.6 L410,279.2 L440,269.6 L470,286.4 L500,300.8 L530,305.6 L560,303.2 L590,298.4 L620,303.2 L650,310.4 L680,320 Z" fill="rgba(214,58,47,0.16)" stroke="#D63A2F" stroke-width="2.4" stroke-linejoin="round"/>
 <text data-ridge="checkout-api" data-role="name" x="304" y="323.5" fill="#111110" font-size="11" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="end">checkout-api</text>
-<text data-ridge="checkout-api" data-role="range" x="696" y="323.5" fill="#595959" font-size="9" font-family="'Ubuntu Mono', monospace">40–440 ms</text>
-<text data-tick="2" data-bin="240" x="500" y="400" fill="#595959" font-size="9" font-family="'Ubuntu Mono', monospace" letter-spacing="0.14em" text-anchor="middle">240</text>
+<text data-ridge="checkout-api" data-role="range" x="696" y="323.5" fill="#595959" font-size="9" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace">40–440 ms</text>
+<text data-tick="2" data-bin="240" x="500" y="400" fill="#595959" font-size="9" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" letter-spacing="0.14em" text-anchor="middle">240</text>
 ```
 
 `data-bins` is the basis of every geometric check, and it is this contract's own vocabulary: the slopegraph above binds `data-series` on a `<line>`, this variant binds `data-bins` on a `<path>`, and neither gate reads the other's attribute, so neither claims the other's file. Any further Line variant should take its own attribute for the same reason — a shared name means two checkers holding one figure to two contracts, and the one that loses rejects it for lacking elements it never said it had. `data-baseline` is what makes a moved row detectable; without it the checker would have to infer the zero from the drawing, which is the very thing being falsified. The printed range is cross-checked against the first and last nonzero bin through the figure's own tick scale, so a range widened by a word is a finding.
@@ -252,7 +251,7 @@ Not for: exact per-period values (the reader gets shape, not numbers — use a *
       fill="rgba(17,17,16,0.30)" stroke="#FFFFFF" stroke-width="1"/>
 
 <!-- Period captions: data-index places the column, data-period binds the text -->
-<text data-period="W05" data-index="4" x="400" y="440" fill="#595959" font-size="8" font-family="'Ubuntu Mono', monospace" letter-spacing="0.08em" text-anchor="middle">W05</text>
+<text data-period="W05" data-index="4" x="400" y="440" fill="#595959" font-size="8" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" letter-spacing="0.08em" text-anchor="middle">W05</text>
 
 <!-- Legend entries: data-total binds the printed per-layer total -->
 <text data-layer="Docs" data-total="76" x="808" y="496" fill="#595959" font-size="8.5" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif">Docs · 76 min · paused</text>
@@ -309,9 +308,14 @@ The binding contract is the slopegraph's, one level up: the path declares its ra
 ```svg
 <path data-series="legacy-http" data-ranks="1,2,4,6" d="M320,88 L440,144 L560,256 L680,368" fill="none" stroke="#D63A2F" stroke-width="2.4"/>
 <text data-series="legacy-http" data-end="first" data-role="name" x="272" y="91.5" fill="#111110" font-size="11" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="end">legacy-http</text>
-<text data-series="legacy-http" data-end="first" data-role="rank" x="304" y="91.5" fill="#595959" font-size="9" font-family="'Ubuntu Mono', monospace" text-anchor="end">#1</text>
-<text data-axis="0" data-state="Q1" x="320" y="416" fill="#595959" font-size="9" font-family="'Ubuntu Mono', monospace" letter-spacing="0.14em" text-anchor="middle">Q1</text>
+<text data-series="legacy-http" data-end="first" data-role="rank" x="304" y="91.5" fill="#595959" font-size="9" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="end">#1</text>
+<text data-axis="0" data-state="Q1" x="320" y="416" fill="#595959" font-size="9" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" letter-spacing="0.14em" text-anchor="middle">Q1</text>
 ```
 
 `data-ranks` is the basis of every geometric check, so a series whose labels go missing stays in the verified set and the missing label is itself reported. The gutter x is read off the figure — every label sharing an end and a role must agree on one column — so a resized plot needs no constant changed here.
 
+## html-explainer notes
+- The plain line grammar also fits a numeric x axis of equally spaced ordinal steps (for example 100, 200, 400, 800, 1600 concurrent requests): space the steps evenly and say so in the x-axis caption ("2倍ずつの等間隔").
+- Geometry at 908 width (example): plot x 96–756, direct labels from x=768, rotated value caption at x≥40. Tick labels are Latin/numeric mono 10px; series names are 12px sans 600.
+- Series: at most 4. The focal series (`accent`, or the focal form in `style-guide.md` when the accent is spent elsewhere) is 2px with point markers; the others are 1.2px gray with the dash patterns in `style-guide.md`. Name each series directly at its line end; with direct labels the legend may be omitted.
+- Slopegraph, ridgeline, streamgraph, and bump variants follow the same notes where they apply.

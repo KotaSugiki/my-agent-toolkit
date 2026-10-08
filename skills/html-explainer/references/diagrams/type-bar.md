@@ -23,7 +23,7 @@
 <!-- Bar body -->
 <rect x="X" y="Y" width="W" height="H" fill="rgba(89,89,89,0.15)" stroke="#595959" stroke-width="1"/>
 <!-- Value label above bar -->
-<text x="X+W/2" y="Y-8" fill="#595959" font-size="8" font-family="'Ubuntu Mono', monospace" text-anchor="middle">VALUE</text>
+<text x="X+W/2" y="Y-8" fill="#595959" font-size="8" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">VALUE</text>
 ```
 
 Focal bar: replace fill with `rgba(214,58,47,0.12)`, stroke with `#D63A2F`, label fill with `#D63A2F`.
@@ -80,8 +80,8 @@ Focal bar: replace fill with `rgba(214,58,47,0.12)`, stroke with `#D63A2F`, labe
 <line x1="458" y1="96" x2="740" y2="96" stroke="rgba(17,17,16,0.55)" stroke-width="1"/>
 <circle cx="458" cy="96" r="6" fill="#FFFFFF" stroke="#595959" stroke-width="1.5"/>
 <circle cx="740" cy="96" r="6" fill="#D63A2F" stroke="#111110" stroke-width="1"/>
-<text x="446" y="100" fill="#595959" font-size="8" font-family="'Ubuntu Mono', monospace" text-anchor="end">34</text>
-<text x="752" y="100" fill="#595959" font-size="8" font-family="'Ubuntu Mono', monospace">71</text>
+<text x="446" y="100" fill="#595959" font-size="8" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="end">34</text>
+<text x="752" y="100" fill="#595959" font-size="8" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace">71</text>
 <text x="188" y="100" fill="#111110" font-size="11" font-weight="600" font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="end">Platform</text>
 ```
 

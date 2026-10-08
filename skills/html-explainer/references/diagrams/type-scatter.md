@@ -7,9 +7,9 @@
 - **Plot area margins:** left 80px, bottom 60px, top 40px, right 40px — inside `0 0 1000 500` viewBox.
 - **Point count:** 5–30 points. Fewer → just describe the relationship in prose; more → bin into a density contour.
 - **Axes:** X at y=420 (baseline), Y at x=80. Both use Ubuntu Mono 8px gridline labels. Gridlines 4–6 per axis at equal intervals.
-- **Point shape:** `<circle>` r=5 for standard points, r=6 for focal. Focal point in `accent` fill. Others in `muted @ 0.20` fill + `muted` stroke.
+- **Point shape:** `<circle>` r=5 for standard points, r=6 for focal. Focal point: `ink` fill with a 2px `ink` ring (the document's one accent is usually spent elsewhere; `style-guide.md`). Others in `muted @ 0.20` fill + `muted` stroke.
 - **Labels on points (optional):** Ubuntu Mono 8px next to a point. Use a paper-fill rect mask behind the label. Label at most 2–3 points; not all.
-- **Trend line (optional):** `<line>` from lower-left to upper-right, stroke `rgba(17,17,16,0.25)` dashed 4,3. Never force a perfect fit — only add if the trend is visually obvious.
+- **Trend line (optional):** `<line>` from lower-left to upper-right, stroke `#767676` dashed 4,3 (an `ink` opacity of 0.25 is only 1.75:1 on white), with a direct label at its right end (`傾向線`, 12px sans 600 `ink`). A trend line is a data line, so index.md §4 rule 1 (no diagonals) does not apply to it. Never force a perfect fit — only add if the trend is visually obvious.
 - **Quadrant dividers (optional):** light dashed lines at the median x and y to split into quadrants. Label each quadrant in Ubuntu Mono 8px, muted.
 
 ### Point pattern
@@ -80,10 +80,10 @@ Not for: a third value that is really a category (use the focal accent or facet 
         fill="rgba(214,58,47,0.15)" stroke="#D63A2F" stroke-width="1.2"/>
 
 <!-- Its label, bound to the bubble it names -->
-<text data-name="Payments" data-role="label" x="538" y="108" fill="#111110" font-size="8" font-family="'Ubuntu Mono', monospace" text-anchor="middle" letter-spacing="0.06em">PAYMENTS</text>
+<text data-name="Payments" data-role="label" x="538" y="108" fill="#111110" font-size="8" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle" letter-spacing="0.06em">PAYMENTS</text>
 
 <!-- An axis tick, bound to the number it prints -->
-<text data-tick="x" data-value="300" x="608" y="440" fill="#595959" font-size="8" font-family="'Ubuntu Mono', monospace" text-anchor="middle">300</text>
+<text data-tick="x" data-value="300" x="608" y="440" fill="#595959" font-size="8" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">300</text>
 ```
 
 What each binding buys, and what it costs to omit:
@@ -151,10 +151,10 @@ Not for: two variables (that is the parent scatter); comparing distributions acr
 <circle data-value="431" data-name="req-4c1f" cx="942" cy="230" r="4" fill="rgba(214,58,47,0.55)" stroke="#D63A2F" stroke-width="1.2"/>
 
 <!-- Its label, bound to the dot it names -->
-<text data-name="req-4c1f" data-role="label" x="942" y="120" fill="#111110" font-size="8" font-family="'Ubuntu Mono', monospace" text-anchor="middle" letter-spacing="0.06em">REQ-4C1F</text>
+<text data-name="req-4c1f" data-role="label" x="942" y="120" fill="#111110" font-size="8" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle" letter-spacing="0.06em">REQ-4C1F</text>
 
 <!-- An axis tick, bound to the number it prints -->
-<text data-tick="x" data-value="200" x="480" y="440" fill="#595959" font-size="8" font-family="'Ubuntu Mono', monospace" text-anchor="middle">200</text>
+<text data-tick="x" data-value="200" x="480" y="440" fill="#595959" font-size="8" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">200</text>
 ```
 
 What each binding buys, and what it costs to omit:
@@ -180,3 +180,7 @@ What each binding buys, and what it costs to omit:
 - Two dots wearing the same `data-name`, or an empty one: a name that identifies two marks identifies neither.
 - An unbound visible string: a label or an axis tick with no attribute stating the same thing.
 
+## html-explainer notes
+- Geometry at 908 width (example): plot x 96–796, plot height 352 (88×4) so the guides sit on the 4px grid; 1.4px per unit for a 0–500 x axis. Guides: 5 horizontal and 6 vertical lines, axes included. Tick labels are mono 10px; axis captions 12px sans 500.
+- Without the accent, omit the focal point or use the ring form above; label at most 2 points, in 12px sans.
+- Plain scatter grammar only; the bubble and beeswarm variants follow the same notes where they apply.

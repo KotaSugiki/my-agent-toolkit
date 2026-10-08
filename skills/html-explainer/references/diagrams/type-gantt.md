@@ -38,3 +38,9 @@ Duration in pixels: `(end_week - start_week) × pitch`. Pitch = timeline_width /
 - Start/end dates in the bar label (put them in the x-axis or tooltip comment instead).
 - Equal visual weight for all bars (the focal task must stand out).
 
+## html-explainer notes
+- Date to x: x = x0 + days_since_start × px_per_day, with the end date inclusive (a bar's width is its inclusive day count × px_per_day). Example at 908 width: 4.25px per day.
+- Task names are 12px sans 600; phase names go in a left column (12px sans 500, `muted`) instead of an eyebrow above each group, which costs about 24px per phase. The type's 7–11px sizes are for Latin/numeric ticks only.
+- Bars are translucent: draw an opaque `#FFFFFF` rect under each so month lines do not show through. The focal bar (a gate) uses the focal form in `style-guide.md` (2px `ink` outline, `ink @ 0.18` fill).
+- Put weekly ticks (Mondays) along the axis with month labels, and say what the small ticks mean in the legend.
+- Annotation and tooltip primitives are not bundled; skip them.
