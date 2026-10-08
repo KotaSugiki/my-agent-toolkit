@@ -67,7 +67,7 @@ n_steps          = len(steps)
 n_lanes          = len(lanes)
 
 # Canvas
-viewBox_w        = label_col_w + n_steps * step_slot_w + right_pad   # 11 steps → 1400
+viewBox_w        = label_col_w + n_steps * step_slot_w + right_pad   # 11 steps → 1400 (at 908 width: 6 steps, see html-explainer notes)
 header_h         = 36
 lane_h           = 80
 has_color_row    = any(node.color or step.color or lane.color in inputs)
@@ -103,9 +103,7 @@ legend_row_y     = [legend_y_top + 16, legend_y_top + 37,
 
 ### 2.1 Background structure
 
-- Paper fill across full viewBox.
-- Dot pattern: 22×22 grid, `circle r=0.8`, `fill rgba(17,17,16,0.10)`. Opacity 0.55.
-- Alternating lane tints: odd-indexed lanes (0, 2, …) receive `rgba(17,17,16,0.018)` fill from `x=140` to `viewBox_w`.
+- No dot pattern and no alternating lane tints: the figure sits on the white `.mb-figure-frame` (`style-guide.md`).
 - Lane dividers: horizontal hairlines at every `lane_y_top(k)` and at `legend_y_top`; stroke `rgba(17,17,16,0.12)` width 0.8.
 - Label column right border: vertical hairline at `x = label_col_w`, stroke `rgba(17,17,16,0.20)` width 1, from `y = header_h` to `y = legend_y_top`.
 
@@ -275,7 +273,7 @@ The process diagram has three focal slots, exactly one entry each:
 - **One focal node** (`nodes[i].focal: true`) — the node that *receives* the critical handoff. Accent border + accent role chip + ink title (title text stays ink so it's still readable; only the border + role chip carry the accent).
 - **One focal arrow set** (`style: focal-in` and `focal-out`) — edges into and out of the focal node. Accent solid strokes.
 
-If zero or >1 of any focal slot are declared, halt and ask the user.
+In html-explainer, zero focal slots are fine (the document's one accent may be spent elsewhere): show any slot you keep with the focal form in `style-guide.md`, and never halt to ask.
 
 ---
 
@@ -344,7 +342,7 @@ Every chip is filled `ink`. The two-letter code carries the meaning, not the ton
 
 Text inside chip: white, font-size 5, weight 700, mono.
 
-Data-type chip colors are a **separate semantic axis** from the per-node color override (§4). Chip colors describe *payload format*; node color describes *concern type*. A node can have both an `out: TB` mustard chip and a ink border simultaneously.
+Data-type chip colors are a **separate semantic axis** from the per-node color override (§4). Chip colors describe *payload format*; node color describes *concern type*. A node can have both an `out: TB` chip and a ink border simultaneously.
 
 ---
 
@@ -489,3 +487,10 @@ Everything else — viewBox sizing, chip positions, legend layout, dark-mode tok
 
 ## 13. Examples
 
+## html-explainer notes
+- The 1400-wide numbers in §2 and §12 belong to the extended variant. At 908 width, 6 steps × 5 lanes fit with: `label_col_w` 108, `step_slot_w` 120, node 96×72, `lane_h` 88, right padding 40, `viewBox` 908×620. Recompute every formula and print the coordinates.
+- Step labels are Japanese 12px sans (for example 同期 / 非同期), not 6px uppercase mono. A node: title 12px sans 600, sub on one line in mono 9px, chips 24×10 with 8px text.
+- Chip codes in §8 are examples for a survey workflow: define the 3–4 codes your process needs, with a legend row. Every chip is `ink` with white text.
+- Legend: three rows of 20px (data, arrows, boxes) inside the 60px strip.
+- When two connectors leave one box edge, use attach points at L/3 and 2L/3 (index.md §4 rule 4); the nearer destination takes the lower point.
+- Lane height 88 with node height 72 leaves a 16px vertical gap; that is acceptable only because no two nodes share a column.

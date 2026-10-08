@@ -47,7 +47,7 @@ Use a rectangular **frame** that spans only the lifelines participating in the b
 <rect x="X" y="Y" width="40" height="16" rx="2"
       fill="#FFFFFF" stroke="rgba(17,17,16,0.22)" stroke-width="1"/>
 <text x="X+20" y="Y+12" fill="#595959" font-size="8"
-      font-family="'Ubuntu Mono', monospace" text-anchor="middle"
+      font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle"
       letter-spacing="0.12em">ALT</text>
 ```
 
@@ -66,7 +66,7 @@ Dark mode: frame fill `rgba(255,255,255,0.04)`, stroke `rgba(255,255,255,0.22)`,
 ```svg
 <!-- Guard: left-aligned inside the frame, mono -->
 <text x="X+12" y="GUARD_Y" fill="#595959" font-size="8"
-      font-family="'Ubuntu Mono', monospace" letter-spacing="0.04em">[token valid]</text>
+      font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" letter-spacing="0.04em">[token valid]</text>
 
 <!-- alt region divider -->
 <line x1="X+8" y1="DIV_Y" x2="X+W-8" y2="DIV_Y"
@@ -121,3 +121,9 @@ If you exceed, split: overview (happy path) + detail (failure / refresh path).
 - Filled arrowhead on async fire-and-forget (use open marker).
 - Open arrowhead on return messages (returns stay filled + dashed).
 
+## html-explainer notes
+- Geometry at 908 width (example, 5 lifelines): actor boxes 144 wide, the first at x=44, pitch 168 (a gap of at least 24 between boxes); first message about 68px below the frame top; labelled messages at least 72px apart. Centers must land on the 4px grid, which is why 144 and 168 are used rather than 140.
+- The headline success response is the ink headline arrow (2px, `arrow-ink`) when the accent is spent elsewhere; returns stay dashed `muted`. That is the one solid return in the figure.
+- Activation bars are translucent: draw an opaque `#FFFFFF` rect under each so the dotted lifelines do not show through. A message may cross another lifeline without a hop (hops are for connector–connector crossings).
+- Japanese fragment guards are 12px sans 500; the frame tag (`OPT`, `ALT`) stays 8px mono. Give the guard text at least 24px below the frame top and keep the first message's label mask clear of it.
+- Identifier labels (`POST /orders`, `order.confirmed`, `201 Created`) keep their case and are mono 9–10px; the 14-character limit does not apply.

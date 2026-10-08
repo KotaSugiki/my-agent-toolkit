@@ -1,6 +1,6 @@
 # Core SVG primitives
 
-Routed from index.md §4. index.md keeps the six connector rules as one line each, the arrow roles, and a one-line node box summary. This file holds the markup and the long form of every rule. Define all three arrow markers in every diagram; load this file when you need exact markup or a rule's edge cases.
+Routed from index.md §4. index.md keeps the six connector rules as one line each, the arrow roles, and a one-line node box summary. This file holds the markup and the long form of every rule. Define only the markers a figure uses; load this file when you need exact markup or a rule's edge cases.
 
 Type-specialized primitives (lifeline, activation bar, region) live in the relevant type reference linked in index.md §2.
 
@@ -13,19 +13,21 @@ Type-specialized primitives (lifeline, activation bar, region) live in the relev
 Prefix every marker ID with the figure's slug (`order-flow-arrow`, `order-flow-arrow-link`): inline SVGs in one document share one ID namespace. Define only the markers the figure actually references; the IDs below are shown without the prefix.
 
 ```svg
-<marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+<marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="userSpaceOnUse">
   <polygon points="0 0, 8 3, 0 6" fill="#595959"/>
 </marker>
-<marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+<marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="userSpaceOnUse">
   <polygon points="0 0, 8 3, 0 6" fill="#D63A2F"/>
 </marker>
-<marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+<marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="userSpaceOnUse">
   <polygon points="0 0, 8 3, 0 6" fill="#2990DA"/>
 </marker>
-<marker id="arrow-ink" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+<marker id="arrow-ink" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" markerUnits="userSpaceOnUse">
   <polygon points="0 0, 8 3, 0 6" fill="#111110"/>
 </marker>
 ```
+
+`markerUnits="userSpaceOnUse"` keeps the head at 8×6 whatever the stroke width. The default scales the head by the stroke width: a 2px line would get a 16×12 head whose tip overshoots the end point.
 
 | Arrow | Stroke | When |
 |---|---|---|
@@ -72,14 +74,14 @@ These six rules are **non-negotiable**. Run the pre-output checklist (index.md �
 <rect x="X" y="Y" width="W" height="H" rx="6" fill="FILL" stroke="STROKE" stroke-width="1"/>
 <!-- 3. Rectangular type tag (rx=2, NOT a pill) -->
 <rect x="X+8" y="Y+6" width="28" height="12" rx="2" fill="transparent" stroke="STROKE@0.40" stroke-width="0.8"/>
-<text x="X+22" y="Y+15" fill="STROKE@0.8" font-size="7" font-family="'Ubuntu Mono', monospace"
+<text x="X+22" y="Y+15" fill="STROKE@0.8" font-size="7" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace"
       text-anchor="middle" letter-spacing="0.08em">API</text>
 <!-- 4. Node name (Ubuntu Sans — human-readable) -->
 <text x="CX" y="CY+2" fill="#111110" font-size="12" font-weight="600"
       font-family="'Ubuntu Sans', 'Noto Sans JP', sans-serif" text-anchor="middle">Node Name</text>
 <!-- 5. Technical sublabel (Ubuntu Mono) -->
 <text x="CX" y="CY+18" fill="#595959" font-size="9"
-      font-family="'Ubuntu Mono', monospace" text-anchor="middle">tech:port</text>
+      font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle">tech:port</text>
 ```
 
 ## Arrow labels — always mask, always with margin
@@ -90,13 +92,14 @@ Every arrow label needs an opaque rect behind it. Without one it bleeds through 
 <!-- Mask sits 14px above the arrow (8px text height + 6px gap). Stroke is at ARROW_Y. -->
 <rect x="MID_X-18" y="ARROW_Y-20" width="36" height="12" rx="2" fill="#FFFFFF"/>
 <text x="MID_X" y="ARROW_Y-11" fill="#767676" font-size="8"
-      font-family="'Ubuntu Mono', monospace" text-anchor="middle" letter-spacing="0.06em">WRITE</text>
+      font-family="'Ubuntu Mono', 'Noto Sans JP', monospace" text-anchor="middle" letter-spacing="0.06em">WRITE</text>
 ```
 
 Rules:
 
-- ≤14 characters, all-caps (Japanese: ≤8 characters, see `style-guide.md`), centered on the segment midpoint — except on a segment longer than 240px (rule 2).
-- Over a tinted zone, fill the mask with that zone's opaque equivalent, not white, so the mask does not show as a patch.
+- ≤14 characters, all-caps (Japanese: ≤8 characters, see `style-guide.md`), centered on the segment midpoint — except on a segment longer than 240px (rule 2). Identifiers, paths, and event names (`POST /orders`, `order.confirmed`) keep their original case, are not subject to the 14-character limit, and are set in mono 9–10px.
+- Mask size: height 12 for 8px Latin text and 16 for 12px Japanese text; width = estimated text width (`style-guide.md`) + 8, rounded up to a multiple of 4.
+- Over a tinted zone, fill the mask with that zone's opaque equivalent, not white, so the mask does not show as a patch. `ink` at 0.02 / 0.03 / 0.04 / 0.05 / 0.06 over white is `#FAFAFA` / `#F8F8F8` / `#F5F5F5` / `#F3F3F3` / `#F1F1F1`. A translucent bar or activation bar that sits over gridlines or lifelines gets an opaque `#FFFFFF` rect drawn under it for the same reason.
 - **Mandatory 6–10px gap** between the bottom of the mask rect and the arrow stroke. The connector must remain visible — a label that hides its own arrow is a hard fail.
 - Never `writing-mode` vertical.
 - For vertical segments, place the label to the side (not on the line) with the same 6–10px horizontal gap.
@@ -110,12 +113,14 @@ Rules:
 ```svg
 <line x1="40" y1="LEGEND_Y-8" x2="VIEWBOX_W-40" y2="LEGEND_Y-8"
       stroke="rgba(17,17,16,0.10)" stroke-width="0.8"/>
-<text x="40" y="LEGEND_Y+8" fill="#595959" font-size="8" font-family="'Ubuntu Mono', monospace"
+<text x="40" y="LEGEND_Y+8" fill="#595959" font-size="8" font-family="'Ubuntu Mono', 'Noto Sans JP', monospace"
       letter-spacing="0.14em">LEGEND</text>
 <!-- Items — horizontal row, ~160px apart -->
 ```
 
 Expand SVG `viewBox` height by ~60px.
+
+Japanese legend text is 12px sans 500 in `muted` (the word `LEGEND` stays 8px mono). Keys are 32px lines or 16×8 swatches, with items about 160–200px apart. A source or note line goes on the same row, right-aligned. With more items than fit on one row, use a second row 20px below and grow the strip by 20px per extra row. A figure whose series are labelled directly, or whose arrows need no explanation, may omit the legend.
 
 ## Accessible SVG contract
 
