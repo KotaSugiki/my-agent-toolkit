@@ -29,7 +29,7 @@
 
 ## diagram-design(cathrynlavery/diagram-design)
 
-44種の図の型と、図の共通ルールの取得元です。
+図の型と、図の共通ルールの取得元です。取得元の44種の型から、利用者の指示(2026-10-08)で次の12種に絞って取り込んでいます。`architecture`、`architecture-delta`、`flowchart`、`sequence`、`timeline`、`swimlane`、`quadrant`、`bar`、`line`、`gantt`、`scatter`、`process` です。
 
 | 項目 | 記録 |
 | --- | --- |
@@ -45,7 +45,7 @@
 
 | 区分 | ファイル | 内容 |
 | --- | --- | --- |
-| 機械的な変換と文の削除 | `references/diagrams/type-*.md`(44)、`primitives-core.md`、`semantic-patterns.md` | 配色・書体・参照先の置き換えと、同梱しない機能への言及の削除。本文は英語のままです |
+| 機械的な変換と文の削除 | `references/diagrams/type-*.md`(12)、`primitives-core.md`、`semantic-patterns.md` | 配色・書体・参照先の置き換えと、同梱しない機能への言及の削除。本文は英語のままです |
 | 書き直し | `style-guide.md`、`layout-budget.md`、`output-spec.md` | 元のファイルを土台に、`html` の配色と文書への組み込みに合わせて日本語で書き直しました |
 | 再構成 | `index.md` | 元の `SKILL.md` の §1(方針)・§3(選択)・§4(アンチパターン)・§6(部品)・§7(上限)・§9(点検)・§12(アクセシビリティ)を、日本語で再構成しました |
 
@@ -54,6 +54,8 @@
 - 図の取り込み・書き出し・初期設定・プロファイル・環境診断に関する文書とスクリプト(`import-*`、`export*`、`onboarding`、`profiles`、`doctor`、`scripts/`)。図の作成とは別の機能で、スタイルは `html` が固定するためです
 - アニメーション、吹き出し注釈、手描き風、ターミナル風、アイコンカタログに関する文書(`animation`、`primitive-annotation`、`primitive-sketchy`、`primitive-terminal`、`primitive-icons`)。静的で黒一色の線画という `html` の規則に合わないか、第三者のブランドロゴを含むためです
 - `assets/` の例とテンプレート。元の配色で作られており、取り込むと元の配色が写るためです
+- 次の32種の型の参照文書。利用者の指示で絞り込みました。`axonometric-plan`、`data-flow`、`db-schema`、`dependency`、`deployment`、`dp-integration`、`dp-security-matrix`、`er`、`exploded`、`fishbone`、`heatmap`、`high-level`、`it-state`、`journey`、`kanban`、`layers`、`loop`、`medallion`、`nested`、`org-chart`、`polar`、`pyramid`、`radar`、`sankey`、`state`、`story-map`、`tree`、`treemap`、`uml-class`、`venn`、`wardley`、`waterfall`
+- 意味パターン9つのうち、主となる型が外れた6つ(ファンインの待ち行列、非構造の入力から構造化された成果物、ガバナンス・統制カタログ、補完し合うセキュリティ層、追跡可能なブロック分解、ライフサイクルの段階マップ)。残した3つは、段階フレームワーク(`process`)、対のポリシー評価トレース(`flowchart`)、セキュアな舗装路(`architecture`)です
 
 ## 独自変更
 
@@ -75,9 +77,8 @@
 
 - **書体:** Geist を Ubuntu Sans(日本語は Noto Sans JP)、Geist Mono を Ubuntu Mono に置き換えました。Instrument Serif と、韓国語・中国語・キリル文字の節は取り除き、日本語ラベルの節に置き換えました
 - **accentの予算:** 「1図に1〜2箇所」を、`html` の「1ページ1箇所」に合わせて文書全体で1箇所にしました。「コーラル」の語は「accent」に置き換えました
-- **系列数:** 折れ線・レーダーの系列を5本から4本(focal 1とグレー3)に減らしました。白地で3:1を満たすグレーが3段階しかないためです
-- **データ型チップ:** `data-flow`・`process` のチップの色分けをやめ、すべて `ink` 塗りの2文字コードで区別します
-- **アイコン:** カタログを同梱しないため、`dp-integration`・`high-level`・`it-state` の `icon` フィールドを取り除き、アイコンなしで描く注記を各型の冒頭に足しました
+- **系列数:** 折れ線の系列を5本から4本(focal 1とグレー3)に減らしました。白地で3:1を満たすグレーが3段階しかないためです
+- **データ型チップ:** `process` のチップの色分けをやめ、すべて `ink` 塗りの2文字コードで区別します
 - **文書への組み込み:** `viewBox` の幅を 908(`.mb-figure-frame` の内側幅に合わせた値)にし、狭い画面で図を横スクロールさせる規則を `output-spec.md` に書きました
 - **削除した記述:** `scripts/*.py` の検証スクリプトの説明、`assets/` の例への参照、`Optional motion` と `Examples` の節、ADRへの言及、サイドカーレジストリの記述
 - **節番号:** 参照文書の `SKILL.md §N` を、`index.md` の新しい節番号に振り替えました(§1→§1、§3→§2、§4→§3、§6→§4、§7→§5、§9→§6、§12→§7)。読み替えの一覧は `index.md` の §8 にあります
@@ -98,7 +99,7 @@
 
 ### 確認できていないこと
 
-- **描画して確認した型は、44種のうち flowchart・architecture・bar の3種だけです。** 残りの41種は、配色・書体・参照先の機械的な置き換えと、上の機械的な確認までです。型ごとの座標の式(1000×500 や 960 幅で書かれたもの)を 908 幅へ計算し直す手順は、`index.md` の §8 に方針だけを書いてあり、型ごとには試していません
-- **色で意味を分けていた型の読みやすさ:** radar・heatmap・treemap・sankey・venn などで、有彩色をグレーに置き換えたあとに読み取れるかは、描画して確認していません
+- **描画して確認した型は、同梱する12種のうち flowchart・architecture・bar の3種だけです。** 残りの9種(sequence・timeline・swimlane・quadrant・line・gantt・scatter・process・architecture-delta)は、配色・書体・参照先の機械的な置き換えと、上の機械的な確認までです。型ごとの座標の式(1000×500 や 960 幅で書かれたもの)を 908 幅へ計算し直す手順は、`index.md` の §8 に方針だけを書いてあり、型ごとには試していません
+- **色で意味を分けていた型の読みやすさ:** line・scatter(系列と focal)、gantt・process(カテゴリ色)などで、有彩色をグレーに置き換えたあとに読み取れるかは、描画して確認していません
 - **取り込んだCSSの挙動:** 幅390pxで、数式コピーのボタン(右端に絶対配置)が幅の広いディスプレイ数式に重なる現象が、試作で報告されました。`design-system/` は無改変で取り込む方針のため、直していません
 - 実機のスマートフォン、Safari・Firefox、印刷・PDF(`render-pdf.sh` はmacOS専用)、スクリーンリーダーの読み上げ、コントラスト比の測定(目視のみ)

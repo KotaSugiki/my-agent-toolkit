@@ -7,7 +7,6 @@
 - One system snapshot → **Architecture** (`type-architecture.md`).
 - Attribute-only differences without a topology story → a **comparison table**. Two versions of a configuration do not need two node maps.
 - Requests over time → **Sequence** (`type-sequence.md`); deployment phases → **Timeline** (`type-timeline.md`). A delta has exactly two states and does not establish migration order, downtime, or causality.
-- Host/container placement in one environment → **Deployment** (`type-deployment.md`).
 
 ## Layout conventions
 

@@ -4,7 +4,7 @@
 
 Prefer swimlane (simpler) when the data types and tools don't matter. Prefer process when each step's input/output payload and responsible team must be legible at a glance.
 
-This type is **parametric** — the inputs schema in §1 drives every coordinate via the formulas in §2. Two generations from the same inputs must produce visually identical SVG. The rule shapes mirror `type-data-flow.md` so color override, IN/OUT chip semantic, and reproducibility checklist read identically across types.
+This type is **parametric** — the inputs schema in §1 drives every coordinate via the formulas in §2. Two generations from the same inputs must produce visually identical SVG.
 
 ---
 
@@ -154,7 +154,7 @@ data chip IN       rect 16×8 at (node_x+4,   node_y+54), rx=2      # payload en
 data chip OUT      rect 16×8 at (node_x+80,  node_y+54), rx=2      # payload leaving
 ```
 
-**Role chip text rule:** the badge inside each node renders `lanes[k].key` where `k` is the node's lane index — **not** the step number (the step number already lives in the column header chip at the top, §2.2). Showing the lane key as the node badge gives each node a self-contained "who" identifier that survives when a single node is excerpted out of context. Mirrors the same rule in `type-data-flow.md` §2.4.
+**Role chip text rule:** the badge inside each node renders `lanes[k].key` where `k` is the node's lane index — **not** the step number (the step number already lives in the column header chip at the top, §2.2). Showing the lane key as the node badge gives each node a self-contained "who" identifier that survives when a single node is excerpted out of context.
 
 Empty cells (no node entry) render **nothing**. No placeholder rect, no role chip, no label.
 
@@ -221,7 +221,7 @@ Avoid. The corridor x position (8 px before destination node) is the only routin
 
 ## 4. Component color override
 
-Any node, lane, or step accepts an optional `color: "#hex"`. Mirrors `type-data-flow.md` §4 and `type-high-level.md` §3.4 so the rule reads identically across types.
+Any node, lane, or step accepts an optional `color: "#hex"`.
 
 ### 4.1 Per-node `color`
 
@@ -258,7 +258,7 @@ Replaces the lane stripe tint with `rgba(C, 0.04)` and the lane label text fill 
 
 ### 4.5 Semantic palette (recommended)
 
-Same palette as `type-high-level.md`, `type-dp-integration.md`, `type-data-flow.md`:
+Recommended grays for the `color` override (see the category colors in `style-guide.md`):
 
 - `#111110` ink — Security / Identity / Governance (access control, training, approvals)
 - `#767676` mid gray — Observability / Quality (data quality gates, validation, monitoring)
@@ -323,7 +323,7 @@ Before emitting SVG, verify **every** item:
 
 ## 8. Data-type chips reference (input + output)
 
-Same catalog as `type-data-flow.md` §8.
+The chip codes are listed below.
 
 - **Input chip** at `(node_x+4, node_y+54)` — bottom-**left**. Payload entering the node.
 - **Output chip** at `(node_x+80, node_y+54)` — bottom-**right**. Payload leaving the node.

@@ -33,19 +33,13 @@
 
 | きっかけ | 意味パターン → 近い型 |
 |---|---|
-| ファンイン、待ち行列、有限の容量、ボトルネック | ファンインの待ち行列 / ボトルネック → data-flow |
 | 段階をまたいで繰り返す 問い・入力・統制・出力 の枠 | 意味の枠を持つ段階フレームワーク → process |
-| 会話や雑多な入力が、構造化された永続的な成果物になる | 非構造の入力 → 構造化された成果物 → data-flow |
 | 2つのルールの評価に 合格/不合格/スキップ/未到達 と最初の分岐点が要る | 対のポリシー評価トレース → flowchart |
 | 信頼境界と、許可・禁止された流入・配備経路 | セキュアな舗装路 → architecture |
-| 統制を、強制される場所ごとに整理する | ガバナンス / 統制カタログ → layers |
-| 防御が前段の隙を補い、残余リスクが伝わっていく | 補完し合うセキュリティ層 → layers |
-| ID で指せる階層分解。ブロックごとの入出力・制約・コードへのリンクが要る | 追跡可能なブロック分解 → tree |
-| 1つの対象が、段階・待ち・再試行・取消・終端結果を経て進む | ライフサイクルの段階マップ → state |
 
 パターンはその意味の部品と、より厳しい上限を持つ。型はレイアウトの文法を持つ。
 
-### 型の一覧(44種)
+### 型の一覧(12種)
 
 選んだ型の参照文書は、**描く前に必ず読む。**
 
@@ -53,48 +47,16 @@
 |---|---|---|
 | ある時点のシステムの部品と接続 | architecture | [type-architecture.md](type-architecture.md) |
 | 同期した Before / After の構造変化と変更台帳 | architecture-delta | [type-architecture-delta.md](type-architecture-delta.md) |
-| 段階・部門別の旧来のIT構成。移行前の状態 | it-state | [type-it-state.md](type-it-state.md) |
 | 分岐のある判断ロジック | flowchart | [type-flowchart.md](type-flowchart.md) |
 | 時間順のアクター間メッセージ | sequence | [type-sequence.md](type-sequence.md) |
-| 状態・遷移・ガード | state | [type-state.md](type-state.md) |
-| エンティティ・項目・関係 | er | [type-er.md](type-er.md) |
 | 時間軸上のできごと | timeline | [type-timeline.md](type-timeline.md) |
 | 引き継ぎのある部門横断の工程 | swimlane | [type-swimlane.md](type-swimlane.md) |
 | 2軸での配置・優先順位付け | quadrant | [type-quadrant.md](type-quadrant.md) |
-| 3〜5の定量基準での複数対象の採点 | radar | [type-radar.md](type-radar.md) |
-| 周期的なカテゴリ上の1系列(角度=カテゴリ、半径=大きさ) | polar | [type-polar.md](type-polar.md) |
-| 最後の段階が最初に戻り、ハブに状態が蓄積する強化サイクル | loop | [type-loop.md](type-loop.md) |
-| 包含・スコープによる階層 | nested | [type-nested.md](type-nested.md) |
-| 親 → 子の関係 | tree | [type-tree.md](type-tree.md) |
-| 人・エージェント・チームの責任・報告・振り分け・エスカレーション | org-chart | [type-org-chart.md](type-org-chart.md) |
-| 積み重なった抽象レベル | layers | [type-layers.md](type-layers.md) |
-| 1つの物を1軸に沿って分解する(分解・開梱・組立順) | exploded | [type-exploded.md](type-exploded.md) |
-| 斜め上から見た1フロア・敷地(家具のある部屋、段階別の建物) | axonometric-plan | [type-axonometric-plan.md](type-axonometric-plan.md) |
-| 集合の重なり | venn | [type-venn.md](type-venn.md) |
-| 順位のある階層、転換率の減衰 | pyramid | [type-pyramid.md](type-pyramid.md) |
 | カテゴリ間の定量比較 | bar | [type-bar.md](type-bar.md) |
-| 開始値から終了値へ、符号付きの寄与で橋渡しする | waterfall | [type-waterfall.md](type-waterfall.md) |
-| 相対サイズが主題の、全体に対する部分 | treemap | [type-treemap.md](type-treemap.md) |
-| クロス集計。値をセルの塗りで表す | heatmap | [type-heatmap.md](type-heatmap.md) |
 | 時間の連続的な傾向。2点間の変化、系列ごとの分布、順位の推移 | line | [type-line.md](type-line.md) |
 | 時間軸上のタスクと段階 | gantt | [type-gantt.md](type-gantt.md) |
 | 2変数の相関・分布。バブル(3変数)、ビースウォーム(1変数) | scatter | [type-scatter.md](type-scatter.md) |
-| コンテナ基盤上のデータスタック全体 | high-level | [type-high-level.md](type-high-level.md) |
 | データの受け渡しのある、複数アクターの逐次工程 | process | [type-process.md](type-process.md) |
-| 品質段階とアクセス方針を持つ多層のデータ保管 | medallion | [type-medallion.md](type-medallion.md) |
-| 役割ごとのデータフロー(各工程で誰が何をするか) | data-flow | [type-data-flow.md](type-data-flow.md) |
-| データ基盤の接続トポロジ(ソース → 中核 → 利用側) | dp-integration | [type-dp-integration.md](type-dp-integration.md) |
-| ロール・部品ごとのアクセス権限の行列 | dp-security-matrix | [type-dp-security-matrix.md](type-dp-security-matrix.md) |
-| 段階をまたいで分かれて合流する量(帯の幅=量) | sankey | [type-sankey.md](type-sankey.md) |
-| 1つの結果の原因を、カテゴリ別に整理する(根本原因分析) | fishbone | [type-fishbone.md](type-fishbone.md) |
-| 価値連鎖と進化段階(作る・買う・動いているもの) | wardley | [type-wardley.md](type-wardley.md) |
-| 状態別の仕掛り(WIP上限・ブロックされた項目) | kanban | [type-kanban.md](type-kanban.md) |
-| 体験の段階ごとの、人の行動と感情 | journey | [type-journey.md](type-journey.md) |
-| ソフトウェアが動く場所(ゾーン・ホスト・成果物・レプリカ・ポート) | deployment | [type-deployment.md](type-deployment.md) |
-| 依存関係。ツリーで表せないファンインと循環 | dependency | [type-dependency.md](type-dependency.md) |
-| 操作・継承・合成を持つクラス | uml-class | [type-uml-class.md](type-uml-class.md) |
-| リリースに切り分けた物語の骨格とカットライン | story-map | [type-story-map.md](type-story-map.md) |
-| 物理テーブル: SQL型・制約・索引・列単位の外部キー | db-schema | [type-db-schema.md](type-db-schema.md) |
 
 選び方の目安:
 
@@ -215,10 +177,9 @@
 | 参照文書の記述 | 読み替え |
 |---|---|
 | `accent` 1〜2個、`≤ 2 accent elements`、`exactly two focal components` など | 上限であり、文書全体で1個以内が先に効く。2個を求める型は1個に絞り、残りは `ink` の太線・位置・ラベルで示す(`style-guide.md`) |
-| 5系列(radar・line) | 4系列(focal 1 + グレー3)。色でなく線種でも区別する(`style-guide.md`) |
-| カテゴリ別の `color: "#hex"` と、色名(rust-red など) | `style-guide.md` の「カテゴリ色」のグレー。意味はラベルで伝える |
+| 5系列(line) | 4系列(focal 1 + グレー3)。色でなく線種でも区別する(`style-guide.md`) |
+| カテゴリ別の `color: "#hex"` と、色名(rust-red など)(process) | `style-guide.md` の「カテゴリ色」のグレー。意味はラベルで伝える |
 | `dark` の列、`C_light`、terminal skin | 使わない。ライトのみ |
-| `icon` フィールド(dp-integration・high-level・it-state) | アイコンカタログは同梱していない。省略する |
 | `assets/example-*.html`、`scripts/*.py`、`animation.md`、`primitive-*.md`、`onboarding.md`、`export*.md` | 同梱していない。検算は手で行う。`data-*` 属性は検算用の宣言で、付けても付けなくてもよい |
 | `viewBox` が `960` 幅の例 | `908` 幅で座標を計算し直す(`output-spec.md`) |
 | 表題・注釈の吹き出し・サマリーカード・フッター | 図に描かない。文書の見出し・`figcaption`・コンポーネントを使う |
