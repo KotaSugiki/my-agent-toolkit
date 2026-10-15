@@ -22,6 +22,7 @@
 ## 保存しているスキル
 
 - [deep-code-reading](skills/deep-code-reading/README.md): リポジトリ全体や指定箇所の構成と基本動作を、コードポインター付きで解説するスキルです。
+- [fork-cli](skills/fork-cli/README.md): メインセッションの会話から実装または文書作成の1件を分け、選んだCLIを同じ作業ディレクトリで起動するスキルです。
 - [github-gitea-operations](skills/github-gitea-operations/README.md): 導入先の規約と接続先を確認し、GitHub・GiteaのIssue起票とPR作成を進めるスキルです。
 - [html-explainer](skills/html-explainer/README.md): 概念や仕組みを、12種の型で描いた図解入りのHTML説明文書として作成・編集するスキルです。文書と図は同じ配色・書体で統一します。
 - [ja-text-communication](skills/ja-text-communication/README.md): 日本語の応答やドキュメントを、一読で意味が伝わるように記述するためのスキルです。
